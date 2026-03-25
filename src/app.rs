@@ -1,0 +1,390 @@
+use crate::config::Config;
+use crate::models::{Channel, CustomPlaylist, ItemData, ListItem, SubFeedLoadMore, TwitchStream, TwitchVod, Video};
+use tokio::sync::mpsc;
+
+// ---------------------------------------------------------------------------
+// App-level events (from async tasks → main loop)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub enum AppEvent {
+    YoutubeResults {
+        items: Vec<Video>,
+        context: ListContext,
+        title: String,
+    },
+    TwitchSearchResults(Vec<TwitchStream>),
+    TwitchSubsResults(Vec<TwitchStream>),
+    TwitchVodsResults(Vec<TwitchVod>),
+    ChannelList(Vec<Channel>),
+    CustomPlaylistResults(Vec<CustomPlaylist>),
+    ChatMessage {
+        user: String,
+        text: String,
+        color: u8,
+    },
+    ChatConnected,
+    ChatError(String),
+    Error(String),
+    StatusMessage(String),
+    DownloadStarted(String),
+    /// Subscription feed first-load results, with optional Load More config.
+    SubFeedResults {
+        items: Vec<Video>,
+        load_more: Option<SubFeedLoadMore>,
+    },
+    /// Subscription feed "Load More" results — merges with the existing list.
+    SubFeedMoreResults {
+        new_items: Vec<Video>,
+        existing_items: Vec<Video>,
+        load_more: Option<SubFeedLoadMore>,
+    },
+    /// Thumbnail downloaded to disk and ready to display.
+    PreviewReady {
+        video_id: String,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// What to do when an item is selected from a list
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub enum ListContext {
+    YoutubeVideoActions,
+    TwitchStreamActions,
+    TwitchVodActions,
+    SelectChannelForVods,
+    SelectChannelToBrowse,
+    CustomPlaylistActions,
+    SearchHistory,
+    Miscellaneous,
+    ChannelTab(String), // channel url
+}
+
+// ---------------------------------------------------------------------------
+// Screen definitions
+// ---------------------------------------------------------------------------
+
+/// Cached thumbnail state for a video.
+#[derive(Debug, Clone)]
+pub struct PreviewEntry {
+    pub ready: bool,  // image has been downloaded to disk
+}
+
+#[derive(Debug, Clone)]
+pub struct ListScreen {
+    pub title: String,
+    pub items: Vec<ListItem>,
+    pub filter: String,
+    pub selected: usize,
+    pub context: ListContext,
+    pub scroll_offset: usize,
+    /// When set, a "Load More" button appears at the bottom of the list.
+    pub load_more: Option<SubFeedLoadMore>,
+}
+
+impl ListScreen {
+    pub fn new(title: impl Into<String>, items: Vec<ListItem>, context: ListContext) -> Self {
+        Self {
+            title: title.into(),
+            items,
+            filter: String::new(),
+            selected: 0,
+            context,
+            scroll_offset: 0,
+            load_more: None,
+        }
+    }
+
+    /// Total navigable rows = filtered items + 1 if Load More is present.
+    pub fn total_rows(&self) -> usize {
+        self.filtered_items().len() + if self.load_more.is_some() { 1 } else { 0 }
+    }
+
+    pub fn filtered_items(&self) -> Vec<&ListItem> {
+        if self.filter.is_empty() {
+            self.items.iter().collect()
+        } else {
+            let f = self.filter.to_lowercase();
+            self.items
+                .iter()
+                .filter(|i| i.display.to_lowercase().contains(&f))
+                .collect()
+        }
+    }
+
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchInputScreen {
+    pub prompt: String,
+    pub input: String,
+    pub context: SearchContext,
+}
+
+#[derive(Debug, Clone)]
+pub enum SearchContext {
+    YoutubeSearch,
+    TwitchSearch,
+    ExploreChannels,
+    ExplorePlaylists,
+    ChannelSearch(String), // channel url
+}
+
+#[derive(Debug, Clone)]
+pub struct ChatScreen {
+    pub channel: String,
+    pub messages: Vec<ChatMessage>,
+    pub scroll_offset: usize,
+    pub connected: bool,
+    pub status: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChatMessage {
+    pub timestamp: String,
+    pub user: String,
+    pub text: String,
+    pub color: u8,
+}
+
+#[derive(Debug, Clone)]
+pub struct VideoActionsScreen {
+    pub video: Video,
+    pub selected: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChannelActionsScreen {
+    pub channel: Channel,
+    pub selected: usize,
+    pub subscribed: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct TwitchStreamActionsScreen {
+    pub stream: TwitchStream,
+    pub selected: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct TwitchVodActionsScreen {
+    pub vod: TwitchVod,
+    pub selected: usize,
+}
+
+#[derive(Debug, Clone)]
+pub enum Screen {
+    ModeSelect {
+        selected: usize,
+    },
+    YoutubeMenu {
+        selected: usize,
+    },
+    TwitchMenu {
+        selected: usize,
+    },
+    List(ListScreen),
+    VideoActions(VideoActionsScreen),
+    ChannelActions(ChannelActionsScreen),
+    TwitchStreamActions(TwitchStreamActionsScreen),
+    TwitchVodActions(TwitchVodActionsScreen),
+    SearchInput(SearchInputScreen),
+    TwitchChat(ChatScreen),
+}
+
+// ---------------------------------------------------------------------------
+// Message kind
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MessageKind {
+    Info,
+    Error,
+    Success,
+}
+
+// ---------------------------------------------------------------------------
+// App state
+// ---------------------------------------------------------------------------
+
+pub struct App {
+    pub screen_stack: Vec<Screen>,
+    pub loading: Option<String>,
+    pub message: Option<(String, MessageKind)>,
+    pub config: Config,
+    pub tx: mpsc::UnboundedSender<AppEvent>,
+    pub rx: mpsc::UnboundedReceiver<AppEvent>,
+    pub should_quit: bool,
+    /// Saved video IDs for quick lookup.
+    pub saved_ids: std::collections::HashSet<String>,
+    /// Thumbnail preview cache keyed by video ID.
+    pub preview_cache: std::collections::HashMap<String, PreviewEntry>,
+    /// video_id of the kitty image currently on screen, if any.
+    pub kitty_displayed: Option<String>,
+    /// (x, y, w, h) in terminal cells of the thumbnail area (set during render).
+    pub preview_thumb_area: Option<(u16, u16, u16, u16)>,
+}
+
+impl App {
+    pub fn new(config: Config) -> Self {
+        let (tx, rx) = mpsc::unbounded_channel();
+        Self {
+            screen_stack: vec![Screen::ModeSelect { selected: 0 }],
+            loading: None,
+            message: None,
+            config,
+            tx,
+            rx,
+            should_quit: false,
+            saved_ids: std::collections::HashSet::new(),
+            preview_cache: std::collections::HashMap::new(),
+            kitty_displayed: None,
+            preview_thumb_area: None,
+        }
+    }
+
+    pub fn current_screen(&self) -> &Screen {
+        self.screen_stack.last().expect("screen stack is never empty")
+    }
+
+    pub fn current_screen_mut(&mut self) -> &mut Screen {
+        self.screen_stack.last_mut().expect("screen stack is never empty")
+    }
+
+    pub fn push_screen(&mut self, screen: Screen) {
+        self.screen_stack.push(screen);
+    }
+
+    pub fn pop_screen(&mut self) {
+        if self.screen_stack.len() > 1 {
+            self.screen_stack.pop();
+        }
+    }
+
+    pub fn set_error(&mut self, msg: impl Into<String>) {
+        self.message = Some((msg.into(), MessageKind::Error));
+        self.loading = None;
+    }
+
+    pub fn set_info(&mut self, msg: impl Into<String>) {
+        self.message = Some((msg.into(), MessageKind::Info));
+    }
+
+    pub fn set_success(&mut self, msg: impl Into<String>) {
+        self.message = Some((msg.into(), MessageKind::Success));
+    }
+
+    pub fn clear_message(&mut self) {
+        self.message = None;
+    }
+
+    // ----- Convenience: build a ListScreen of videos -----
+    pub fn make_video_list(
+        title: impl Into<String>,
+        videos: Vec<Video>,
+        context: ListContext,
+    ) -> ListScreen {
+        let items = videos
+            .into_iter()
+            .map(|v| {
+                let date = if let Some(ts) = v.timestamp {
+                    crate::ui::relative_time(ts)
+                } else if !v.upload_date.is_empty() {
+                    // YYYYMMDD → YYYY-MM-DD
+                    if v.upload_date.len() == 8 {
+                        format!("{}-{}-{}", &v.upload_date[..4], &v.upload_date[4..6], &v.upload_date[6..8])
+                    } else {
+                        v.upload_date.clone()
+                    }
+                } else {
+                    String::new()
+                };
+                let display = format!(
+                    "{:<60} | {:<25} | {:<16} | {}",
+                    truncate(&v.title, 60),
+                    truncate(&v.channel, 25),
+                    date,
+                    v.duration_string
+                );
+                ListItem {
+                    display,
+                    data: ItemData::YoutubeVideo(v),
+                }
+            })
+            .collect();
+        ListScreen::new(title, items, context)
+    }
+
+    pub fn make_video_list_with_load_more(
+        title: impl Into<String>,
+        videos: Vec<Video>,
+        context: ListContext,
+        load_more: Option<SubFeedLoadMore>,
+    ) -> ListScreen {
+        let mut ls = Self::make_video_list(title, videos, context);
+        ls.load_more = load_more;
+        ls
+    }
+
+    // ----- Convenience: build a ListScreen of twitch streams -----
+    pub fn make_stream_list(
+        title: impl Into<String>,
+        streams: Vec<TwitchStream>,
+        context: ListContext,
+    ) -> ListScreen {
+        let items = streams
+            .into_iter()
+            .map(|s| {
+                let status = if s.is_live { "LIVE" } else { "OFF " };
+                let display = format!(
+                    "{} {:>6} viewers | {:<20} | {:<20} | {}",
+                    status,
+                    s.viewers,
+                    truncate(&s.login, 20),
+                    truncate(&s.game, 20),
+                    truncate(&s.title, 50)
+                );
+                ListItem {
+                    display,
+                    data: ItemData::TwitchStream(s),
+                }
+            })
+            .collect();
+        ListScreen::new(title, items, context)
+    }
+
+    pub fn make_vod_list(
+        title: impl Into<String>,
+        vods: Vec<TwitchVod>,
+        context: ListContext,
+    ) -> ListScreen {
+        let items = vods
+            .into_iter()
+            .map(|v| {
+                let display = format!(
+                    "{} | {} | {}",
+                    v.upload_date,
+                    truncate(&v.duration, 12),
+                    truncate(&v.title, 80)
+                );
+                ListItem {
+                    display,
+                    data: ItemData::TwitchVod(v),
+                }
+            })
+            .collect();
+        ListScreen::new(title, items, context)
+    }
+}
+
+pub fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let mut result: String = s.chars().take(max.saturating_sub(1)).collect();
+        result.push('…');
+        result
+    }
+}
