@@ -157,17 +157,21 @@ pub async fn fetch_vods(user: &str) -> Result<Vec<TwitchVod>> {
         "https://www.twitch.tv/{}/videos?filter=archives&sort=time",
         user
     );
-    let output = tokio::process::Command::new("yt-dlp")
-        .args([
-            &url,
-            "--flat-playlist",
-            "--playlist-end",
-            "20",
-            "-J",
-        ])
-        .output()
-        .await
-        .context("Failed to run yt-dlp for Twitch VODs")?;
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        tokio::process::Command::new("yt-dlp")
+            .args([
+                &url,
+                "--flat-playlist",
+                "--playlist-end",
+                "20",
+                "-J",
+            ])
+            .output(),
+    )
+    .await
+    .context("yt-dlp timed out fetching VODs")?
+    .context("Failed to run yt-dlp for Twitch VODs")?;
 
     if output.stdout.is_empty() {
         return Ok(vec![]);

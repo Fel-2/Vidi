@@ -388,3 +388,74 @@ pub fn truncate(s: &str, max: usize) -> String {
         result
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_short_string() {
+        assert_eq!(truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_exact_length() {
+        assert_eq!(truncate("hello", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_long_string() {
+        assert_eq!(truncate("hello world", 5), "hell…");
+    }
+
+    #[test]
+    fn truncate_unicode() {
+        // 4 chars, truncate to 3 → 2 chars + ellipsis
+        assert_eq!(truncate("café", 3), "ca…");
+    }
+
+    #[test]
+    fn truncate_one() {
+        assert_eq!(truncate("hello", 1), "…");
+    }
+
+    #[test]
+    fn list_screen_filter() {
+        let items = vec![
+            ListItem { display: "Alpha Video".to_string(), data: ItemData::Text("a".to_string()) },
+            ListItem { display: "Beta Stream".to_string(), data: ItemData::Text("b".to_string()) },
+            ListItem { display: "Alpha Stream".to_string(), data: ItemData::Text("c".to_string()) },
+        ];
+        let mut ls = ListScreen::new("Test", items, ListContext::Miscellaneous);
+        ls.filter = "alpha".to_string();
+        let filtered = ls.filtered_items();
+        assert_eq!(filtered.len(), 2);
+        assert_eq!(filtered[0].display, "Alpha Video");
+        assert_eq!(filtered[1].display, "Alpha Stream");
+    }
+
+    #[test]
+    fn list_screen_empty_filter_returns_all() {
+        let items = vec![
+            ListItem { display: "A".to_string(), data: ItemData::Text("a".to_string()) },
+            ListItem { display: "B".to_string(), data: ItemData::Text("b".to_string()) },
+        ];
+        let ls = ListScreen::new("Test", items, ListContext::Miscellaneous);
+        assert_eq!(ls.filtered_items().len(), 2);
+    }
+
+    #[test]
+    fn list_screen_total_rows_with_load_more() {
+        let items = vec![
+            ListItem { display: "A".to_string(), data: ItemData::Text("a".to_string()) },
+        ];
+        let mut ls = ListScreen::new("Test", items, ListContext::Miscellaneous);
+        assert_eq!(ls.total_rows(), 1);
+        ls.load_more = Some(crate::models::SubFeedLoadMore {
+            subs: vec![],
+            next_playlist_end: 20,
+            label: "Load More".to_string(),
+        });
+        assert_eq!(ls.total_rows(), 2);
+    }
+}

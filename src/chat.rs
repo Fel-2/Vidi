@@ -128,3 +128,62 @@ pub fn irc_color_to_ratatui(idx: u8) -> ratatui::style::Color {
         _ => Color::White,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_privmsg_normal() {
+        let line = ":nick!nick@nick.tmi.twitch.tv PRIVMSG #channel :hello world";
+        let msg = parse_privmsg(line).unwrap();
+        assert_eq!(msg.user, "nick");
+        assert_eq!(msg.text, "hello world");
+    }
+
+    #[test]
+    fn parse_privmsg_with_colon_in_message() {
+        let line = ":user!user@user.tmi.twitch.tv PRIVMSG #ch :check this: cool";
+        let msg = parse_privmsg(line).unwrap();
+        assert_eq!(msg.user, "user");
+        assert_eq!(msg.text, "check this: cool");
+    }
+
+    #[test]
+    fn parse_privmsg_ignores_non_privmsg() {
+        assert!(parse_privmsg("PING :tmi.twitch.tv").is_none());
+        assert!(parse_privmsg(":tmi.twitch.tv 001 justinfan12345 :Welcome").is_none());
+    }
+
+    #[test]
+    fn parse_privmsg_empty_prefix() {
+        let line = ": PRIVMSG #ch :test";
+        assert!(parse_privmsg(line).is_none());
+    }
+
+    #[test]
+    fn hash_color_deterministic() {
+        let c1 = hash_color("testuser");
+        let c2 = hash_color("testuser");
+        assert_eq!(c1, c2);
+    }
+
+    #[test]
+    fn hash_color_in_range() {
+        for name in &["alice", "bob", "charlie", "dave", "x", ""] {
+            assert!(hash_color(name) < 7);
+        }
+    }
+
+    #[test]
+    fn hash_color_different_users_vary() {
+        // Not guaranteed to differ for any two users, but these should differ
+        // given the simple additive hash.
+        let colors: std::collections::HashSet<u8> =
+            ["a", "b", "c", "d", "e", "f", "g"]
+                .iter()
+                .map(|u| hash_color(u))
+                .collect();
+        assert!(colors.len() > 1);
+    }
+}

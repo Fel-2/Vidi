@@ -36,8 +36,10 @@ pub async fn run_yt_dlp(url: &str, playlist_end: u32) -> Result<Value> {
     .context("yt-dlp timed out")?
     .context("Failed to run yt-dlp")?;
 
-    if output.stdout.is_empty() {
-        anyhow::bail!("yt-dlp returned no output");
+    if !output.status.success() || output.stdout.is_empty() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let msg = stderr.lines().last().unwrap_or("unknown error").trim();
+        anyhow::bail!("yt-dlp failed: {}", if msg.is_empty() { "no output" } else { msg });
     }
 
     serde_json::from_slice(&output.stdout).context("Failed to parse yt-dlp JSON output")
@@ -567,6 +569,11 @@ pub fn append_search_history(query: &str) -> anyhow::Result<()> {
 // ---------------------------------------------------------------------------
 
 pub fn subscribe_channel(url: &str) -> anyhow::Result<()> {
+    let trimmed = url.trim();
+    let existing = load_subscriptions();
+    if existing.iter().any(|s| s.trim_end_matches('/') == trimmed.trim_end_matches('/')) {
+        anyhow::bail!("Already subscribed");
+    }
     let path = crate::config::youtube_subs_file();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -576,7 +583,7 @@ pub fn subscribe_channel(url: &str) -> anyhow::Result<()> {
         .append(true)
         .open(&path)?;
     use std::io::Write;
-    writeln!(file, "{}", url.trim())?;
+    writeln!(file, "{}", trimmed)?;
     Ok(())
 }
 
@@ -659,5 +666,195 @@ pub async fn fetch_channels() -> Result<Vec<Channel>> {
     }
     channels.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(channels)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ── urlencoding_simple ──────────────────────────────────────────────
+
+    #[test]
+    fn urlencoding_ascii_passthrough() {
+        assert_eq!(urlencoding_simple("hello"), "hello");
+        assert_eq!(urlencoding_simple("foo-bar_baz.qux~"), "foo-bar_baz.qux~");
+    }
+
+    #[test]
+    fn urlencoding_spaces_become_plus() {
+        assert_eq!(urlencoding_simple("hello world"), "hello+world");
+    }
+
+    #[test]
+    fn urlencoding_special_chars() {
+        assert_eq!(urlencoding_simple("a&b=c"), "a%26b%3Dc");
+        assert_eq!(urlencoding_simple("100%"), "100%25");
+    }
+
+    #[test]
+    fn urlencoding_non_ascii_encodes_utf8_bytes() {
+        // é is U+00E9 → UTF-8 bytes 0xC3 0xA9
+        assert_eq!(urlencoding_simple("café"), "caf%C3%A9");
+        // ñ is U+00F1 → UTF-8 bytes 0xC3 0xB1
+        assert_eq!(urlencoding_simple("niño"), "ni%C3%B1o");
+    }
+
+    #[test]
+    fn urlencoding_cjk() {
+        // 日 is U+65E5 → UTF-8 bytes 0xE6 0x97 0xA5
+        assert_eq!(urlencoding_simple("日"), "%E6%97%A5");
+    }
+
+    // ── timestamp_to_yyyymmdd ───────────────────────────────────────────
+
+    #[test]
+    fn timestamp_epoch_zero() {
+        assert_eq!(timestamp_to_yyyymmdd(0), "19700101");
+    }
+
+    #[test]
+    fn timestamp_known_date() {
+        // 2024-01-15 00:00:00 UTC = 1705276800
+        assert_eq!(timestamp_to_yyyymmdd(1705276800), "20240115");
+    }
+
+    #[test]
+    fn timestamp_y2k() {
+        // 2000-01-01 00:00:00 UTC = 946684800
+        assert_eq!(timestamp_to_yyyymmdd(946684800), "20000101");
+    }
+
+    #[test]
+    fn timestamp_negative() {
+        // 1969-12-31
+        assert_eq!(timestamp_to_yyyymmdd(-86400), "19691231");
+    }
+
+    // ── parse_search_filter ─────────────────────────────────────────────
+
+    #[test]
+    fn search_filter_no_prefix() {
+        let (sp, q) = parse_search_filter("rust programming");
+        assert_eq!(sp, "");
+        assert_eq!(q, "rust programming");
+    }
+
+    #[test]
+    fn search_filter_with_prefix() {
+        let (sp, q) = parse_search_filter(":today rust programming");
+        assert_eq!(sp, "EgIIAg%253D%253D");
+        assert_eq!(q, "rust programming");
+    }
+
+    #[test]
+    fn search_filter_prefix_only() {
+        let (sp, q) = parse_search_filter(":newest");
+        assert_eq!(sp, "CAI%253D");
+        assert_eq!(q, "");
+    }
+
+    // ── parse_playlist_json ─────────────────────────────────────────────
+
+    #[test]
+    fn parse_playlist_empty_entries() {
+        let json = json!({"entries": []});
+        assert!(parse_playlist_json(&json).is_empty());
+    }
+
+    #[test]
+    fn parse_playlist_no_entries_key() {
+        let json = json!({"foo": "bar"});
+        assert!(parse_playlist_json(&json).is_empty());
+    }
+
+    #[test]
+    fn parse_playlist_single_video_no_entries() {
+        let json = json!({
+            "id": "abc123",
+            "title": "Test Video",
+            "url": "https://www.youtube.com/watch?v=abc123",
+            "channel": "TestChannel",
+            "channel_url": "https://www.youtube.com/c/TestChannel",
+            "upload_date": "20240101",
+            "duration_string": "5:30"
+        });
+        let videos = parse_playlist_json(&json);
+        assert_eq!(videos.len(), 1);
+        assert_eq!(videos[0].id, "abc123");
+        assert_eq!(videos[0].title, "Test Video");
+        assert_eq!(videos[0].channel, "TestChannel");
+    }
+
+    #[test]
+    fn parse_playlist_with_entries() {
+        let json = json!({
+            "channel": "PlaylistOwner",
+            "channel_url": "https://www.youtube.com/c/PlaylistOwner",
+            "entries": [
+                {
+                    "id": "vid1",
+                    "title": "First Video",
+                    "duration_string": "3:00"
+                },
+                {
+                    "id": "vid2",
+                    "title": "Second Video",
+                    "channel": "OtherChannel",
+                    "duration_string": "10:00"
+                }
+            ]
+        });
+        let videos = parse_playlist_json(&json);
+        assert_eq!(videos.len(), 2);
+        // First entry falls back to root channel
+        assert_eq!(videos[0].channel, "PlaylistOwner");
+        // Second entry has its own channel
+        assert_eq!(videos[1].channel, "OtherChannel");
+    }
+
+    #[test]
+    fn parse_playlist_url_fallback_from_id() {
+        let json = json!({"id": "xyz", "title": "T"});
+        let videos = parse_playlist_json(&json);
+        assert_eq!(videos[0].url, "https://www.youtube.com/watch?v=xyz");
+    }
+
+    #[test]
+    fn parse_playlist_thumbnail_from_thumbnails_array() {
+        let json = json!({
+            "id": "t1",
+            "title": "Thumb test",
+            "thumbnails": [
+                {"url": "https://example.com/low.jpg?sqp=abc"},
+                {"url": "https://example.com/high.jpg?sqp=def"}
+            ]
+        });
+        let videos = parse_playlist_json(&json);
+        // Should pick last entry and strip query string
+        assert_eq!(videos[0].thumbnail, "https://example.com/high.jpg");
+    }
+
+    #[test]
+    fn parse_playlist_upload_date_from_timestamp() {
+        let json = json!({
+            "id": "ts1",
+            "title": "Timestamp test",
+            "timestamp": 1705276800  // 2024-01-15
+        });
+        let videos = parse_playlist_json(&json);
+        assert_eq!(videos[0].upload_date, "20240115");
+    }
+
+    #[test]
+    fn parse_playlist_uploader_fallback() {
+        let json = json!({
+            "uploader": "UploaderName",
+            "uploader_url": "https://www.youtube.com/c/UploaderName",
+            "entries": [{"id": "v1", "title": "V"}]
+        });
+        let videos = parse_playlist_json(&json);
+        assert_eq!(videos[0].channel, "UploaderName");
+    }
 }
 

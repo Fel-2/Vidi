@@ -708,11 +708,12 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
         }
         "Saved Videos" => {
             let saved = youtube::load_saved();
-            let videos = saved.entries;
+            let mut videos = saved.entries;
             if videos.is_empty() {
                 app.set_error("No saved videos.");
                 return;
             }
+            videos.reverse();
             let ls = App::make_video_list("Saved Videos", videos, ListContext::YoutubeVideoActions);
             app.push_screen(Screen::List(ls));
         }

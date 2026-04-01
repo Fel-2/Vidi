@@ -214,31 +214,23 @@ pub fn load_twitch_config() -> Result<TwitchConfig> {
     }
     let content = std::fs::read_to_string(&path)?;
 
-    // Twitch config uses KEY="VALUE" shell syntax - handle both formats
+    // Twitch config supports both KEY="VALUE" (shell) and KEY: VALUE formats.
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('#') || trimmed.is_empty() {
             continue;
         }
-        if let Some((key, val)) = trimmed.split_once('=') {
-            let val = val.trim().trim_matches('"');
-            match key.trim() {
+        // Try KEY: VALUE first, then KEY=VALUE
+        if let Some((key, val)) = trimmed.split_once(':').map(|(k, v)| (k.trim(), v.trim()))
+            .or_else(|| trimmed.split_once('=').map(|(k, v)| (k.trim(), v.trim().trim_matches('"'))))
+        {
+            match key {
                 "PLAYER" => cfg.player = val.to_string(),
                 "QUALITY" => cfg.quality = val.to_string(),
-                "PREFERRED_EDITOR" => cfg.editor = val.to_string(),
+                "PREFERRED_EDITOR" | "EDITOR" => cfg.editor = val.to_string(),
                 "ENABLE_PREVIEW" => cfg.enable_preview = val.to_lowercase() == "true",
                 _ => {}
             }
-        }
-        // Also support KEY: VALUE format
-        if let Some(v) = parse_kv(trimmed, "PLAYER") {
-            cfg.player = v;
-        }
-        if let Some(v) = parse_kv(trimmed, "QUALITY") {
-            cfg.quality = v;
-        }
-        if let Some(v) = parse_kv(trimmed, "EDITOR") {
-            cfg.editor = v;
         }
     }
     Ok(cfg)
@@ -305,4 +297,81 @@ pub fn write_default_twitch_config() -> Result<()> {
     );
     std::fs::write(path, content)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── parse_kv ────────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_kv_basic() {
+        assert_eq!(parse_kv("PLAYER: mpv", "PLAYER"), Some("mpv".to_string()));
+    }
+
+    #[test]
+    fn parse_kv_with_spaces() {
+        assert_eq!(
+            parse_kv("PLAYER :   mpv  ", "PLAYER"),
+            Some("mpv".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_kv_ignores_comments() {
+        let content = "# PLAYER: vlc\nPLAYER: mpv";
+        assert_eq!(parse_kv(content, "PLAYER"), Some("mpv".to_string()));
+    }
+
+    #[test]
+    fn parse_kv_missing_key() {
+        assert_eq!(parse_kv("QUALITY: 1080", "PLAYER"), None);
+    }
+
+    #[test]
+    fn parse_kv_no_colon_separator() {
+        // parse_kv requires colon, not equals
+        assert_eq!(parse_kv("PLAYER=mpv", "PLAYER"), None);
+    }
+
+    #[test]
+    fn parse_kv_multiline() {
+        let content = "PLAYER: mpv\nVIDEO_QUALITY: 720\nEDITOR: vim";
+        assert_eq!(parse_kv(content, "VIDEO_QUALITY"), Some("720".to_string()));
+        assert_eq!(parse_kv(content, "EDITOR"), Some("vim".to_string()));
+    }
+
+    // ── shellexpand_tilde ───────────────────────────────────────────────
+
+    #[test]
+    fn shellexpand_no_tilde() {
+        assert_eq!(shellexpand_tilde("/usr/bin"), "/usr/bin");
+    }
+
+    #[test]
+    fn shellexpand_tilde_expands() {
+        let result = shellexpand_tilde("~/Downloads");
+        assert!(!result.starts_with('~'));
+        assert!(result.ends_with("/Downloads"));
+    }
+
+    // ── Config defaults ─────────────────────────────────────────────────
+
+    #[test]
+    fn youtube_config_defaults() {
+        let cfg = YoutubeConfig::default();
+        assert_eq!(cfg.player, "mpv");
+        assert_eq!(cfg.video_quality, "1080");
+        assert!(cfg.update_recent);
+        assert_eq!(cfg.no_of_recent, 30);
+    }
+
+    #[test]
+    fn twitch_config_defaults() {
+        let cfg = TwitchConfig::default();
+        assert_eq!(cfg.player, "mpv");
+        assert_eq!(cfg.quality, "best");
+        assert!(!cfg.enable_preview);
+    }
 }
