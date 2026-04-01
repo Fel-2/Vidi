@@ -302,9 +302,9 @@ impl App {
                     String::new()
                 };
                 let display = format!(
-                    "{:<60} | {:<25} | {:<16} | {}",
-                    truncate(&v.title, 60),
-                    truncate(&v.channel, 25),
+                    "{:<50} | {:<20} | {:<14} | {}",
+                    truncate(&v.title, 50),
+                    truncate(&v.channel, 20),
                     date,
                     v.duration_string
                 );

@@ -416,11 +416,11 @@ fn render_list_screen(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut App)
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
         .split(outer[1]);
 
-    render_item_list(f, body[0], ls);
+    render_item_list(f, body[0], ls, app);
     render_preview_panel(f, body[1], ls, app);
 }
 
-fn render_item_list(f: &mut Frame, area: Rect, ls: &ListScreen) {
+fn render_item_list(f: &mut Frame, area: Rect, ls: &ListScreen, app: &App) {
     let filtered = ls.filtered_items();
     let visible_height = area.height.saturating_sub(2) as usize;
     let scroll_start = ls.scroll_offset;
@@ -431,6 +431,11 @@ fn render_item_list(f: &mut Frame, area: Rect, ls: &ListScreen) {
         .skip(scroll_start)
         .take(visible_height)
         .map(|(i, item)| {
+            let saved = match &item.data {
+                ItemData::YoutubeVideo(v) => app.saved_ids.contains(&v.id),
+                _ => false,
+            };
+            let prefix = if saved { " ❤ " } else { "   " };
             let style = if i == ls.selected {
                 Style::default()
                     .fg(TEAL)
@@ -439,7 +444,7 @@ fn render_item_list(f: &mut Frame, area: Rect, ls: &ListScreen) {
             } else {
                 item_style_for_data(&item.data)
             };
-            ListItem::new(format!(" {}", item.display)).style(style)
+            ListItem::new(format!("{}{}", prefix, item.display)).style(style)
         })
         .collect();
 
