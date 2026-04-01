@@ -239,7 +239,7 @@ pub async fn fetch_search(query: &str, sp: &str, limit: u32) -> Result<Vec<Video
     Ok(parse_playlist_json(&json))
 }
 
-fn urlencoding_simple(s: &str) -> String {
+pub fn urlencoding_simple(s: &str) -> String {
     let mut out = String::new();
     for byte in s.bytes() {
         match byte {

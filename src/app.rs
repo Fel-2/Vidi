@@ -135,7 +135,7 @@ pub enum SearchContext {
 #[derive(Debug, Clone)]
 pub struct ChatScreen {
     pub channel: String,
-    pub messages: Vec<ChatMessage>,
+    pub messages: std::collections::VecDeque<ChatMessage>,
     pub scroll_offset: usize,
     pub connected: bool,
     pub status: String,

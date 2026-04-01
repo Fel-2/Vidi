@@ -45,6 +45,7 @@ pub const YOUTUBE_MENU_ITEMS: &[&str] = &[
     "Channels",
     "Custom Playlists",
     "Recent",
+    "Saved Videos",
     "Edit Config",
     "Miscellaneous",
 ];
@@ -98,6 +99,7 @@ const YOUTUBE_MENU_DISPLAY: &[&str] = &[
     "📋  Channels",
     "🎯  Custom Playlists",
     "🕐  Recent",
+    "❤️  Saved Videos",
     "⚙️  Edit Config",
     "🎲  Miscellaneous",
 ];

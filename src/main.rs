@@ -411,9 +411,9 @@ fn handle_app_event(app: &mut App, event: AppEvent) {
             if let Screen::TwitchChat(ref mut cs) = app.current_screen_mut() {
                 let ts = chrono_now();
                 if cs.messages.len() >= 1000 {
-                    cs.messages.remove(0);
+                    cs.messages.pop_front();
                 }
-                cs.messages.push(ChatMessage {
+                cs.messages.push_back(ChatMessage {
                     timestamp: ts,
                     user,
                     text,
@@ -704,6 +704,16 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
                 return;
             }
             let ls = App::make_video_list("Recent", videos, ListContext::YoutubeVideoActions);
+            app.push_screen(Screen::List(ls));
+        }
+        "Saved Videos" => {
+            let saved = youtube::load_saved();
+            let videos = saved.entries;
+            if videos.is_empty() {
+                app.set_error("No saved videos.");
+                return;
+            }
+            let ls = App::make_video_list("Saved Videos", videos, ListContext::YoutubeVideoActions);
             app.push_screen(Screen::List(ls));
         }
         "Edit Config" => {
@@ -1357,10 +1367,7 @@ async fn video_action_execute(
         }
         "Open in Browser" => {
             let url = video.url.clone();
-            tokio::process::Command::new("xdg-open")
-                .arg(&url)
-                .spawn()
-                .ok();
+            open_url_in_browser(&url);
             app.set_info(format!("Opening: {}", url));
         }
         "Back" => {
@@ -1495,7 +1502,7 @@ async fn handle_twitch_stream_actions(
                     let tx = app.tx.clone();
                     let chat_screen = ChatScreen {
                         channel: channel.clone(),
-                        messages: Vec::new(),
+                        messages: std::collections::VecDeque::new(),
                         scroll_offset: 0,
                         connected: false,
                         status: "Connecting…".to_string(),
@@ -1514,7 +1521,7 @@ async fn handle_twitch_stream_actions(
                     let tx = app.tx.clone();
                     let chat_screen = ChatScreen {
                         channel: channel.clone(),
-                        messages: Vec::new(),
+                        messages: std::collections::VecDeque::new(),
                         scroll_offset: 0,
                         connected: false,
                         status: "Connecting…".to_string(),
@@ -1729,7 +1736,7 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
             tokio::spawn(async move {
                 let url = format!(
                     "https://www.youtube.com/results?search_query={}&sp=EgIQAw%253D%253D",
-                    q.replace(' ', "+")
+                    youtube::urlencoding_simple(&q)
                 );
                 match youtube::fetch_playlist(&url, limit).await {
                     Ok(items) => {
@@ -1752,7 +1759,7 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
             let url = format!(
                 "{}/search?query={}",
                 channel_url.trim_end_matches('/'),
-                input.replace(' ', "+")
+                youtube::urlencoding_simple(&input)
             );
             let channel_url_clone = channel_url.clone();
             let title = format!("Channel Search: {}", input);
@@ -1855,4 +1862,20 @@ fn chrono_now() -> String {
     let m = (day_secs % 3600) / 60;
     let s = day_secs % 60;
     format!("{:02}:{:02}:{:02}", h, m, s)
+}
+
+fn open_url_in_browser(url: &str) {
+    #[cfg(target_os = "linux")]
+    let cmd = "xdg-open";
+    #[cfg(target_os = "macos")]
+    let cmd = "open";
+    #[cfg(target_os = "windows")]
+    let cmd = "start";
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    let cmd = "xdg-open";
+
+    tokio::process::Command::new(cmd)
+        .arg(url)
+        .spawn()
+        .ok();
 }
