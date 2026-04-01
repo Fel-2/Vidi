@@ -36,6 +36,24 @@ pub fn spawn_detached(args: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// Run an external process in the background and wait for it to finish.
+/// Does NOT touch the terminal — safe to call from `tokio::spawn`.
+pub async fn run_background(args: &[&str]) -> Result<()> {
+    if args.is_empty() {
+        return Ok(());
+    }
+    let status = tokio::process::Command::new(args[0])
+        .args(&args[1..])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await?;
+    if !status.success() {
+        anyhow::bail!("Process exited with {}", status);
+    }
+    Ok(())
+}
+
 /// Build mpv arguments for watching a video.
 pub fn mpv_watch_args(url: &str, title: &str, quality: &str) -> Vec<String> {
     vec![

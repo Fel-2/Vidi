@@ -240,13 +240,19 @@ pub async fn fetch_search(query: &str, sp: &str, limit: u32) -> Result<Vec<Video
 }
 
 fn urlencoding_simple(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
-            ' ' => "+".to_string(),
-            _ => format!("%{:02X}", c as u32),
-        })
-        .collect()
+    let mut out = String::new();
+    for byte in s.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            b' ' => out.push('+'),
+            _ => {
+                out.push_str(&format!("%{:02X}", byte));
+            }
+        }
+    }
+    out
 }
 
 pub async fn fetch_playlist(playlist_url: &str, limit: u32) -> Result<Vec<Video>> {

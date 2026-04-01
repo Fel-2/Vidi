@@ -849,7 +849,9 @@ async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: ListScreen) {
             let max_idx = ls.total_rows().saturating_sub(1);
             if ls.selected < max_idx {
                 ls.selected += 1;
-                let visible = 30usize;
+                let visible = crossterm::terminal::size()
+                    .map(|(_, h)| (h as usize).saturating_sub(8))
+                    .unwrap_or(30);
                 if ls.selected >= ls.scroll_offset + visible {
                     ls.scroll_offset = ls.selected.saturating_sub(visible - 1);
                 }
@@ -1246,11 +1248,20 @@ async fn video_action_execute(
                     "Downloading: {}",
                     title
                 )));
-                let _ = player::launch_external(&args_str).await;
-                let _ = tx.send(AppEvent::StatusMessage(format!(
-                    "Download complete: {}",
-                    title
-                )));
+                match player::run_background(&args_str).await {
+                    Ok(_) => {
+                        let _ = tx.send(AppEvent::StatusMessage(format!(
+                            "Download complete: {}",
+                            title
+                        )));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(format!(
+                            "Download failed: {} — {}",
+                            title, e
+                        )));
+                    }
+                }
             });
         }
         "Download (Audio Only)" => {
@@ -1265,11 +1276,20 @@ async fn video_action_execute(
                     "Downloading audio: {}",
                     title
                 )));
-                let _ = player::launch_external(&args_str).await;
-                let _ = tx.send(AppEvent::StatusMessage(format!(
-                    "Audio download complete: {}",
-                    title
-                )));
+                match player::run_background(&args_str).await {
+                    Ok(_) => {
+                        let _ = tx.send(AppEvent::StatusMessage(format!(
+                            "Audio download complete: {}",
+                            title
+                        )));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(format!(
+                            "Audio download failed: {} — {}",
+                            title, e
+                        )));
+                    }
+                }
             });
         }
         "Download All" => {
@@ -1283,8 +1303,14 @@ async fn video_action_execute(
                 let args = player::ytdlp_download_args(&playlist_url, &dl_dir);
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = tx.send(AppEvent::DownloadStarted("Downloading all…".to_string()));
-                let _ = player::launch_external(&args_str).await;
-                let _ = tx.send(AppEvent::StatusMessage("Download all complete.".to_string()));
+                match player::run_background(&args_str).await {
+                    Ok(_) => {
+                        let _ = tx.send(AppEvent::StatusMessage("Download all complete.".to_string()));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(format!("Download all failed: {}", e)));
+                    }
+                }
             });
         }
         "Download All (Audio Only)" => {
@@ -1300,10 +1326,19 @@ async fn video_action_execute(
                 let _ = tx.send(AppEvent::DownloadStarted(
                     "Downloading all audio…".to_string(),
                 ));
-                let _ = player::launch_external(&args_str).await;
-                let _ = tx.send(AppEvent::StatusMessage(
-                    "Download all audio complete.".to_string(),
-                ));
+                match player::run_background(&args_str).await {
+                    Ok(_) => {
+                        let _ = tx.send(AppEvent::StatusMessage(
+                            "Download all audio complete.".to_string(),
+                        ));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(format!(
+                            "Download all audio failed: {}",
+                            e
+                        )));
+                    }
+                }
             });
         }
         "Save" => {
@@ -1546,8 +1581,17 @@ async fn handle_twitch_vod_actions(
                             "Downloading VOD: {}",
                             title
                         )));
-                        let _ = player::launch_external(&args_str).await;
-                        let _ = tx.send(AppEvent::StatusMessage("VOD download complete.".to_string()));
+                        match player::run_background(&args_str).await {
+                            Ok(_) => {
+                                let _ = tx.send(AppEvent::StatusMessage("VOD download complete.".to_string()));
+                            }
+                            Err(e) => {
+                                let _ = tx.send(AppEvent::Error(format!(
+                                    "VOD download failed: {} — {}",
+                                    title, e
+                                )));
+                            }
+                        }
                     });
                 }
                 "Open in Browser" => {
@@ -1776,13 +1820,39 @@ fn handle_chat(app: &mut App, key: event::KeyEvent) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn chrono_now() -> String {
+    // Compute local time by reading the UTC offset from the TZ environment.
+    // Falls back to a `date` call on the first invocation to determine the offset.
+    use std::sync::OnceLock;
     use std::time::{SystemTime, UNIX_EPOCH};
+    static UTC_OFFSET: OnceLock<i64> = OnceLock::new();
+    let offset = *UTC_OFFSET.get_or_init(|| {
+        // Ask the system for the current UTC offset in seconds.
+        std::process::Command::new("date")
+            .arg("+%z")
+            .output()
+            .ok()
+            .and_then(|o| {
+                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                // Format: +HHMM or -HHMM
+                if s.len() >= 5 {
+                    let sign: i64 = if s.starts_with('-') { -1 } else { 1 };
+                    let hh = s[1..3].parse::<i64>().unwrap_or(0);
+                    let mm = s[3..5].parse::<i64>().unwrap_or(0);
+                    Some(sign * (hh * 3600 + mm * 60))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0)
+    });
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs();
-    let h = (secs % 86400) / 3600;
-    let m = (secs % 3600) / 60;
-    let s = secs % 60;
+        .as_secs() as i64
+        + offset;
+    let day_secs = secs.rem_euclid(86400);
+    let h = day_secs / 3600;
+    let m = (day_secs % 3600) / 60;
+    let s = day_secs % 60;
     format!("{:02}:{:02}:{:02}", h, m, s)
 }
