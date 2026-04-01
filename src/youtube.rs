@@ -2,8 +2,8 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 
 use crate::config::{
-    youtube_custom_playlists_file, youtube_recent_file, youtube_saved_file,
-    youtube_search_history_file,
+    youtube_custom_playlists_file, youtube_feed_cache_file, youtube_recent_file,
+    youtube_saved_file, youtube_search_history_file,
 };
 use crate::models::{Channel, CustomPlaylist, RecentVideos, SavedVideos, Video};
 
@@ -345,16 +345,68 @@ pub async fn fetch_subscription_feed(
         }
     }
 
-    all.sort_by(|a, b| {
-        // Newest first. Videos without a timestamp sink to the bottom.
+    sort_videos_newest_first(&mut all);
+    Ok(all)
+}
+
+pub fn sort_videos_newest_first(videos: &mut Vec<Video>) {
+    videos.sort_by(|a, b| {
         match (b.timestamp, a.timestamp) {
             (Some(bt), Some(at)) => bt.cmp(&at),
-            (Some(_), None) => std::cmp::Ordering::Greater, // a (no ts) after b (has ts)
-            (None, Some(_)) => std::cmp::Ordering::Less,    // a (has ts) before b (no ts)
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (None, Some(_)) => std::cmp::Ordering::Less,
             (None, None) => b.upload_date.cmp(&a.upload_date),
         }
     });
-    Ok(all)
+}
+
+// ---------------------------------------------------------------------------
+// Feed cache
+// ---------------------------------------------------------------------------
+
+/// How long the feed cache is considered fresh (in seconds).
+const FEED_CACHE_MAX_AGE_SECS: u64 = 15 * 60; // 15 minutes
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct FeedCache {
+    /// Unix timestamp when the cache was written.
+    cached_at: u64,
+    videos: Vec<Video>,
+}
+
+/// Return cached feed if fresh enough, otherwise None.
+pub fn load_feed_cache() -> Option<Vec<Video>> {
+    let path = youtube_feed_cache_file();
+    let content = std::fs::read_to_string(&path).ok()?;
+    let cache: FeedCache = serde_json::from_str(&content).ok()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if now.saturating_sub(cache.cached_at) < FEED_CACHE_MAX_AGE_SECS {
+        Some(cache.videos)
+    } else {
+        None
+    }
+}
+
+/// Write feed results to cache.
+pub fn save_feed_cache(videos: &[Video]) {
+    let path = youtube_feed_cache_file();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let cache = FeedCache {
+        cached_at: now,
+        videos: videos.to_vec(),
+    };
+    if let Ok(json) = serde_json::to_string(&cache) {
+        std::fs::write(path, json).ok();
+    }
 }
 
 // ---------------------------------------------------------------------------

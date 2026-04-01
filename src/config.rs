@@ -124,6 +124,10 @@ pub fn youtube_search_history_file() -> PathBuf {
     youtube_cache_dir().join("search_history.txt")
 }
 
+pub fn youtube_feed_cache_file() -> PathBuf {
+    youtube_cache_dir().join("feed_cache.json")
+}
+
 pub fn youtube_preview_cache_dir() -> PathBuf {
     youtube_cache_dir().join("preview_images")
 }

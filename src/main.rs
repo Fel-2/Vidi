@@ -652,14 +652,28 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
                 app.set_error("No YouTube subscriptions found. Add URLs to ~/.config/vidi/subscriptions");
                 return;
             }
+
+            // Try cache first — show instantly if fresh
+            if let Some(cached) = youtube::load_feed_cache() {
+                let load_more = Some(SubFeedLoadMore {
+                    subs: subs.clone(),
+                    next_playlist_end: 20,
+                    label: "── Load More ──".to_string(),
+                });
+                let _ = app.tx.send(AppEvent::SubFeedResults {
+                    items: cached,
+                    load_more,
+                });
+                return;
+            }
+
             let tx = app.tx.clone();
             let subs_clone = subs.clone();
             app.loading = Some("Fetching subscription feed…".to_string());
             tokio::spawn(async move {
-                // Fetch latest 5 per channel, no date filter (yt-dlp approximate_date
-                // rounds to month start, so strict "today" filtering yields nothing).
-                match youtube::fetch_subscription_feed(subs_clone.clone(), 5, 4, None).await {
+                match youtube::fetch_subscription_feed(subs_clone.clone(), 5, 8, None).await {
                     Ok(items) => {
+                        youtube::save_feed_cache(&items);
                         let load_more = Some(SubFeedLoadMore {
                             subs: subs_clone,
                             next_playlist_end: 20,
@@ -955,7 +969,7 @@ fn execute_load_more(app: &mut App, ls: &ListScreen, lm: &SubFeedLoadMore) {
     };
 
     tokio::spawn(async move {
-        match youtube::fetch_subscription_feed(subs, playlist_end, 4, None).await {
+        match youtube::fetch_subscription_feed(subs, playlist_end, 8, None).await {
             Ok(new_items) => {
                 let _ = tx.send(AppEvent::SubFeedMoreResults {
                     new_items,
