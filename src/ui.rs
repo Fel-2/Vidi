@@ -448,8 +448,10 @@ fn render_item_list(f: &mut Frame, area: Rect, ls: &ListScreen, app: &App) {
         })
         .collect();
 
-    // "Load More" row
-    if let Some(ref lm) = ls.load_more {
+    // "Load More" row (sub feed or channel tab)
+    let load_more_label = ls.load_more.as_ref().map(|lm| &lm.label)
+        .or_else(|| ls.channel_load_more.as_ref().map(|lm| &lm.label));
+    if let Some(label) = load_more_label {
         let lm_idx = filtered.len();
         if lm_idx >= scroll_start && visible_items.len() < visible_height {
             let style = if ls.selected == lm_idx {
@@ -459,7 +461,7 @@ fn render_item_list(f: &mut Frame, area: Rect, ls: &ListScreen, app: &App) {
             } else {
                 Style::default().fg(YELLOW)
             };
-            visible_items.push(ListItem::new(format!(" {}", lm.label)).style(style));
+            visible_items.push(ListItem::new(format!(" {}", label)).style(style));
         }
     }
 

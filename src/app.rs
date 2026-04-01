@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::models::{Channel, CustomPlaylist, ItemData, ListItem, SubFeedLoadMore, TwitchStream, TwitchVod, Video};
+use crate::models::{Channel, ChannelTabLoadMore, CustomPlaylist, ItemData, ListItem, SubFeedLoadMore, TwitchStream, TwitchVod, Video};
 use tokio::sync::mpsc;
 
 // ---------------------------------------------------------------------------
@@ -12,6 +12,7 @@ pub enum AppEvent {
         items: Vec<Video>,
         context: ListContext,
         title: String,
+        channel_load_more: Option<ChannelTabLoadMore>,
     },
     TwitchSearchResults(Vec<TwitchStream>),
     TwitchSubsResults(Vec<TwitchStream>),
@@ -38,6 +39,14 @@ pub enum AppEvent {
         new_items: Vec<Video>,
         existing_items: Vec<Video>,
         load_more: Option<SubFeedLoadMore>,
+    },
+    /// Channel tab "Load More" results — merges with the existing list.
+    ChannelTabMoreResults {
+        new_items: Vec<Video>,
+        existing_items: Vec<Video>,
+        channel_load_more: Option<ChannelTabLoadMore>,
+        title: String,
+        context: ListContext,
     },
     /// Thumbnail downloaded to disk and ready to display.
     PreviewReady {
@@ -82,6 +91,8 @@ pub struct ListScreen {
     pub scroll_offset: usize,
     /// When set, a "Load More" button appears at the bottom of the list.
     pub load_more: Option<SubFeedLoadMore>,
+    /// Channel tab "Load More" (for Videos, Shorts, Streams, Playlists tabs).
+    pub channel_load_more: Option<ChannelTabLoadMore>,
 }
 
 impl ListScreen {
@@ -94,12 +105,14 @@ impl ListScreen {
             context,
             scroll_offset: 0,
             load_more: None,
+            channel_load_more: None,
         }
     }
 
-    /// Total navigable rows = filtered items + 1 if Load More is present.
+    /// Total navigable rows = filtered items + 1 if any Load More is present.
     pub fn total_rows(&self) -> usize {
-        self.filtered_items().len() + if self.load_more.is_some() { 1 } else { 0 }
+        let has_load_more = self.load_more.is_some() || self.channel_load_more.is_some();
+        self.filtered_items().len() + if has_load_more { 1 } else { 0 }
     }
 
     pub fn filtered_items(&self) -> Vec<&ListItem> {

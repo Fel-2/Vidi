@@ -83,6 +83,22 @@ pub struct SubFeedLoadMore {
     pub label: String,
 }
 
+/// Config for the "Load More" button on channel tab / playlist lists.
+#[derive(Debug, Clone)]
+pub struct ChannelTabLoadMore {
+    /// Full URL for the tab (e.g. `https://…/@channel/videos`).
+    pub url: String,
+    /// The ListContext to use for the results.
+    pub context: super::app::ListContext,
+    /// Title shown on the list screen.
+    pub title: String,
+    /// How many entries were already fetched (next fetch starts after these).
+    pub current_playlist_end: u32,
+    /// How many more to fetch per click.
+    pub page_size: u32,
+    pub label: String,
+}
+
 #[derive(Debug, Clone)]
 pub enum ItemData {
     YoutubeVideo(Video),

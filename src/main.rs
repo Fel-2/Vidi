@@ -22,7 +22,7 @@ use app::{
     MessageKind, PreviewEntry, Screen, SearchContext, SearchInputScreen, TwitchStreamActionsScreen,
     TwitchVodActionsScreen, VideoActionsScreen,
 };
-use models::{ItemData, ListItem, SubFeedLoadMore, Video};
+use models::{ChannelTabLoadMore, ItemData, ListItem, SubFeedLoadMore, Video};
 use ui::{
     channel_action_items, twitch_stream_action_items, twitch_vod_action_items,
     TWITCH_MENU_ITEMS, VIDEO_ACTION_ITEMS, YOUTUBE_MENU_ITEMS,
@@ -350,9 +350,10 @@ fn kitty_clear() {
 
 fn handle_app_event(app: &mut App, event: AppEvent) {
     match event {
-        AppEvent::YoutubeResults { items, context, title } => {
+        AppEvent::YoutubeResults { items, context, title, channel_load_more } => {
             app.loading = None;
-            let ls = App::make_video_list(title, items, context);
+            let mut ls = App::make_video_list(title, items, context);
+            ls.channel_load_more = channel_load_more;
             trigger_preview_for_selected(app, &ls);
             app.push_screen(Screen::List(ls));
         }
@@ -488,6 +489,24 @@ fn handle_app_event(app: &mut App, event: AppEvent) {
             );
             trigger_preview_for_selected(app, &ls);
             // Replace the current screen (still the sub-feed list).
+            if matches!(app.current_screen(), Screen::List(_)) {
+                *app.current_screen_mut() = Screen::List(ls);
+            } else {
+                app.push_screen(Screen::List(ls));
+            }
+        }
+
+        AppEvent::ChannelTabMoreResults { new_items, existing_items, channel_load_more, title, context } => {
+            app.loading = None;
+            let mut all = existing_items;
+            for v in new_items {
+                if !all.iter().any(|e: &Video| e.id == v.id) {
+                    all.push(v);
+                }
+            }
+            let mut ls = App::make_video_list(title, all, context);
+            ls.channel_load_more = channel_load_more;
+            trigger_preview_for_selected(app, &ls);
             if matches!(app.current_screen(), Screen::List(_)) {
                 *app.current_screen_mut() = Screen::List(ls);
             } else {
@@ -631,6 +650,7 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
                             items,
                             context: ListContext::YoutubeVideoActions,
                             title: "Trending".to_string(),
+                            channel_load_more: None,
                         });
                     }
                     Err(e) => {
@@ -913,6 +933,8 @@ async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: ListScreen) {
             if ls.selected == filtered_len {
                 if let Some(ref lm) = ls.load_more.clone() {
                     execute_load_more(app, &ls, lm);
+                } else if let Some(ref clm) = ls.channel_load_more.clone() {
+                    execute_channel_load_more(app, &ls, clm);
                 }
                 return; // keep the current screen
             }
@@ -975,6 +997,53 @@ fn execute_load_more(app: &mut App, ls: &ListScreen, lm: &SubFeedLoadMore) {
                     new_items,
                     existing_items: existing,
                     load_more: next_lm,
+                });
+            }
+            Err(e) => {
+                let _ = tx.send(AppEvent::Error(e.to_string()));
+            }
+        }
+    });
+}
+
+fn execute_channel_load_more(app: &mut App, ls: &ListScreen, clm: &ChannelTabLoadMore) {
+    let existing: Vec<Video> = ls
+        .items
+        .iter()
+        .filter_map(|i| {
+            if let ItemData::YoutubeVideo(v) = &i.data {
+                Some(v.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    let new_end = clm.current_playlist_end + clm.page_size;
+    let url = clm.url.clone();
+    let context = clm.context.clone();
+    let title = clm.title.clone();
+    let page_size = clm.page_size;
+    let tx = app.tx.clone();
+    app.loading = Some(format!("Loading more (up to {})…", new_end));
+
+    let next_clm = Some(ChannelTabLoadMore {
+        url: clm.url.clone(),
+        context: clm.context.clone(),
+        title: clm.title.clone(),
+        current_playlist_end: new_end,
+        page_size,
+        label: "── Load More ──".to_string(),
+    });
+
+    tokio::spawn(async move {
+        match youtube::fetch_playlist(&url, new_end).await {
+            Ok(new_items) => {
+                let _ = tx.send(AppEvent::ChannelTabMoreResults {
+                    new_items,
+                    existing_items: existing,
+                    channel_load_more: next_clm,
+                    title,
+                    context,
                 });
             }
             Err(e) => {
@@ -1062,6 +1131,7 @@ async fn handle_list_item_select(
                                 items,
                                 context: ListContext::YoutubeVideoActions,
                                 title: name,
+                                channel_load_more: None,
                             });
                         }
                         Err(e) => {
@@ -1086,6 +1156,7 @@ async fn handle_list_item_select(
                                 items,
                                 context: ListContext::YoutubeVideoActions,
                                 title: format!("Search: {}", query_clone),
+                                channel_load_more: None,
                             });
                         }
                         Err(e) => {
@@ -1185,14 +1256,24 @@ async fn handle_list_item_select(
                 let url = format!("{}{}", channel_url.trim_end_matches('/'), tab_path);
                 let limit = app.config.youtube.no_of_search_results as u32;
                 let tab_name = tab.clone();
+                let channel_url_for_clm = channel_url.clone();
                 app.loading = Some(format!("Loading {}…", tab));
                 tokio::spawn(async move {
                     match youtube::fetch_playlist(&url, limit).await {
                         Ok(items) => {
+                            let clm = Some(ChannelTabLoadMore {
+                                url: url.clone(),
+                                context: ListContext::ChannelTab(channel_url.clone()),
+                                title: tab_name.clone(),
+                                current_playlist_end: limit,
+                                page_size: limit,
+                                label: "── Load More ──".to_string(),
+                            });
                             let _ = tx.send(AppEvent::YoutubeResults {
                                 items,
-                                context: ListContext::ChannelTab(channel_url),
+                                context: ListContext::ChannelTab(channel_url_for_clm),
                                 title: tab_name,
+                                channel_load_more: clm,
                             });
                         }
                         Err(e) => {
@@ -1458,10 +1539,19 @@ async fn handle_channel_actions(
             tokio::spawn(async move {
                 match youtube::fetch_playlist(&url, limit).await {
                     Ok(items) => {
+                        let clm = Some(ChannelTabLoadMore {
+                            url: url.clone(),
+                            context: ListContext::ChannelTab(channel_url_clone.clone()),
+                            title: tab_name.clone(),
+                            current_playlist_end: limit,
+                            page_size: limit,
+                            label: "── Load More ──".to_string(),
+                        });
                         let _ = tx.send(AppEvent::YoutubeResults {
                             items,
                             context: ListContext::ChannelTab(channel_url_clone),
                             title: tab_name,
+                            channel_load_more: clm,
                         });
                     }
                     Err(e) => {
@@ -1702,6 +1792,7 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
                             items,
                             context: ListContext::YoutubeVideoActions,
                             title: format!("Search: {}", q),
+                            channel_load_more: None,
                         });
                     }
                     Err(e) => {
@@ -1759,6 +1850,7 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
                             items,
                             context: ListContext::YoutubeVideoActions,
                             title: format!("Playlists: {}", q),
+                            channel_load_more: None,
                         });
                     }
                     Err(e) => {
@@ -1786,6 +1878,7 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
                             items,
                             context: ListContext::ChannelTab(channel_url_clone),
                             title,
+                            channel_load_more: None,
                         });
                     }
                     Err(e) => {
