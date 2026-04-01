@@ -42,7 +42,7 @@ pub fn mpv_watch_args(url: &str, title: &str, quality: &str) -> Vec<String> {
         "mpv".to_string(),
         url.to_string(),
         format!("--force-media-title={}", title),
-        format!("--script-opts=mpris-title={}", title),
+        format!("--script-opts-append=mpris-title={}", title),
         format!("--ytdl-format=bestvideo[height<={}]+bestaudio/best[height<={}]/best", quality, quality),
     ]
 }
