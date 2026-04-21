@@ -57,6 +57,12 @@ async fn main() -> Result<()> {
         app.saved_ids.insert(v.id.clone());
     }
 
+    // Pre-load watched video IDs
+    let recent = youtube::load_recent();
+    for v in &recent.entries {
+        app.watched_ids.insert(v.id.clone());
+    }
+
     let result = run_app(&mut terminal, &mut app).await;
 
     // Restore terminal
@@ -895,8 +901,8 @@ async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: ListScreen) {
             if ls.selected < max_idx {
                 ls.selected += 1;
                 let visible = crossterm::terminal::size()
-                    .map(|(_, h)| (h as usize).saturating_sub(8))
-                    .unwrap_or(30);
+                    .map(|(_, h)| (h as usize).saturating_sub(11))
+                    .unwrap_or(20);
                 if ls.selected >= ls.scroll_offset + visible {
                     ls.scroll_offset = ls.selected.saturating_sub(visible - 1);
                 }
@@ -1335,6 +1341,7 @@ async fn video_action_execute(
             if update_recent {
                 youtube::add_to_recent(video, no_of_recent).ok();
             }
+            app.watched_ids.insert(video.id.clone());
         }
         "Play All" => {
             let playlist_url = video.playlist_url.as_deref().unwrap_or(&video.url);

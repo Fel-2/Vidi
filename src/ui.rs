@@ -431,16 +431,26 @@ fn render_item_list(f: &mut Frame, area: Rect, ls: &ListScreen, app: &App) {
         .skip(scroll_start)
         .take(visible_height)
         .map(|(i, item)| {
-            let saved = match &item.data {
-                ItemData::YoutubeVideo(v) => app.saved_ids.contains(&v.id),
-                _ => false,
+            let (saved, watched) = match &item.data {
+                ItemData::YoutubeVideo(v) => (
+                    app.saved_ids.contains(&v.id),
+                    app.watched_ids.contains(&v.id),
+                ),
+                _ => (false, false),
             };
-            let prefix = if saved { " ❤ " } else { "   " };
+            let prefix = match (saved, watched) {
+                (true, true)  => " ❤✓",
+                (true, false) => " ❤ ",
+                (false, true) => "  ✓",
+                (false, false) => "   ",
+            };
             let style = if i == ls.selected {
                 Style::default()
                     .fg(TEAL)
                     .bg(SURFACE)
                     .add_modifier(Modifier::BOLD)
+            } else if watched {
+                Style::default().fg(SUBTEXT)
             } else {
                 item_style_for_data(&item.data)
             };

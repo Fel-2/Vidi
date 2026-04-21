@@ -232,6 +232,8 @@ pub struct App {
     pub should_quit: bool,
     /// Saved video IDs for quick lookup.
     pub saved_ids: std::collections::HashSet<String>,
+    /// Watched video IDs for quick lookup.
+    pub watched_ids: std::collections::HashSet<String>,
     /// Thumbnail preview cache keyed by video ID.
     pub preview_cache: std::collections::HashMap<String, PreviewEntry>,
     /// video_id of the kitty image currently on screen, if any.
@@ -252,6 +254,7 @@ impl App {
             rx,
             should_quit: false,
             saved_ids: std::collections::HashSet::new(),
+            watched_ids: std::collections::HashSet::new(),
             preview_cache: std::collections::HashMap::new(),
             kitty_displayed: None,
             preview_thumb_area: None,
