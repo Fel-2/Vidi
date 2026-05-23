@@ -1682,9 +1682,8 @@ async fn handle_twitch_vod_actions(
             let action = &items[va.selected];
             match action.as_str() {
                 "Watch VOD" => {
-                    let quality = app.config.twitch.quality.clone();
-                    let player_bin = app.config.twitch.player.clone();
-                    let args = player::streamlink_args(&va.vod.url, &quality, &player_bin);
+                    let quality = app.config.youtube.video_quality.clone();
+                    let args = player::mpv_watch_args(&va.vod.url, &va.vod.title, &quality);
                     let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                     let _ = player::launch_external(&args_str).await;
                 }
