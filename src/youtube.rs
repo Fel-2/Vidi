@@ -349,7 +349,7 @@ pub async fn fetch_subscription_feed(
     Ok(all)
 }
 
-pub fn sort_videos_newest_first(videos: &mut Vec<Video>) {
+pub fn sort_videos_newest_first(videos: &mut [Video]) {
     videos.sort_by(|a, b| {
         match (b.timestamp, a.timestamp) {
             (Some(bt), Some(at)) => bt.cmp(&at),
@@ -691,7 +691,7 @@ pub async fn channel_from_url(url: &str) -> Channel {
         name: url
             .trim_end_matches('/')
             .split('/')
-            .last()
+            .next_back()
             .unwrap_or(url)
             .to_string(),
         url: url.to_string(),

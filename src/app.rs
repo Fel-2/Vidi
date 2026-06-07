@@ -169,6 +169,13 @@ pub struct VideoActionsScreen {
 }
 
 #[derive(Debug, Clone)]
+pub struct QualitySelectScreen {
+    pub video: Video,
+    pub options: Vec<String>,
+    pub selected: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct ChannelActionsScreen {
     pub channel: Channel,
     pub selected: usize,
@@ -200,11 +207,44 @@ pub enum Screen {
     },
     List(ListScreen),
     VideoActions(VideoActionsScreen),
+    QualitySelect(QualitySelectScreen),
     ChannelActions(ChannelActionsScreen),
     TwitchStreamActions(TwitchStreamActionsScreen),
     TwitchVodActions(TwitchVodActionsScreen),
     SearchInput(SearchInputScreen),
     TwitchChat(ChatScreen),
+}
+
+// ---------------------------------------------------------------------------
+// Terminal graphics protocol
+// ---------------------------------------------------------------------------
+
+/// Which inline-image protocol the host terminal supports, detected at startup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphicsProtocol {
+    Kitty,
+    ITerm2,
+    None,
+}
+
+impl GraphicsProtocol {
+    pub fn detect() -> Self {
+        use std::env::var;
+        let term = var("TERM").unwrap_or_default();
+        let term_program = var("TERM_PROGRAM").unwrap_or_default();
+
+        if var("KITTY_WINDOW_ID").is_ok()
+            || term.contains("kitty")
+            || term.contains("ghostty")
+            || term_program == "ghostty"
+        {
+            return GraphicsProtocol::Kitty;
+        }
+        if term_program == "iTerm.app" || term_program == "WezTerm" {
+            return GraphicsProtocol::ITerm2;
+        }
+        GraphicsProtocol::None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +280,8 @@ pub struct App {
     pub kitty_displayed: Option<String>,
     /// (x, y, w, h) in terminal cells of the thumbnail area (set during render).
     pub preview_thumb_area: Option<(u16, u16, u16, u16)>,
+    /// Inline-image protocol supported by the host terminal.
+    pub graphics: GraphicsProtocol,
 }
 
 impl App {
@@ -258,6 +300,7 @@ impl App {
             preview_cache: std::collections::HashMap::new(),
             kitty_displayed: None,
             preview_thumb_area: None,
+            graphics: GraphicsProtocol::detect(),
         }
     }
 
@@ -393,6 +436,14 @@ impl App {
             .collect();
         ListScreen::new(title, items, context)
     }
+}
+
+/// Resolution options offered by the quality picker, highest first.
+pub fn quality_options() -> Vec<String> {
+    ["best", "2160", "1440", "1080", "720", "480", "360", "240"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 pub fn truncate(s: &str, max: usize) -> String {

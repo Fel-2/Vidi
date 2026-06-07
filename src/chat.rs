@@ -99,9 +99,7 @@ fn parse_privmsg(line: &str) -> Option<IrcMsg> {
 
     // Extract message after ": " following channel name
     let rest = parts[1];
-    let text = rest
-        .splitn(2, ':')
-        .nth(1)
+    let text = rest.split_once(':').map(|x| x.1)
         .unwrap_or("")
         .trim()
         .to_string();

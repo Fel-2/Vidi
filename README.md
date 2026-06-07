@@ -30,7 +30,7 @@ A terminal UI for YouTube and Twitch, written in Rust.
 - 💬 Live chat viewer
 
 **General**
-- Kitty terminal graphics protocol for thumbnail previews
+- Inline thumbnail previews (kitty / Ghostty graphics protocol, or iTerm2 / WezTerm)
 - Inline video playback via `mpv` / `yt-dlp`
 - Download support (video + audio-only, single + batch)
 - Save/unsave videos to a local watchlist
@@ -41,7 +41,7 @@ A terminal UI for YouTube and Twitch, written in Rust.
 - [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
 - [`mpv`](https://mpv.io/)
 - [`streamlink`](https://streamlink.github.io/) — Twitch streams
-- [Kitty terminal](https://sw.kovidgoyal.net/kitty/) — thumbnail previews
+- A graphics-capable terminal for thumbnail previews: [Kitty](https://sw.kovidgoyal.net/kitty/), [Ghostty](https://ghostty.org/), [iTerm2](https://iterm2.com/), or [WezTerm](https://wezterm.org/) (optional)
 
 ## Build
 
@@ -75,3 +75,11 @@ Config files are created automatically on first run:
 | `q` | Quit |
 | Type anything | Filter list |
 | `Backspace` | Delete filter character |
+| Mouse wheel | Scroll lists |
+
+Single-key overrides can be set in `vidi.conf` (`KEY_UP`, `KEY_DOWN`, `KEY_SELECT`,
+`KEY_BACK`, `KEY_QUIT`, `KEY_PAGE_UP`, `KEY_PAGE_DOWN`). Arrow and vim keys always work.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

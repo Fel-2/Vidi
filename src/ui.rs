@@ -6,7 +6,9 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, ChatScreen, ListScreen, MessageKind, Screen, VideoActionsScreen};
+use crate::app::{
+    App, ChatScreen, ListScreen, MessageKind, QualitySelectScreen, Screen, VideoActionsScreen,
+};
 use crate::chat::irc_color_to_ratatui;
 use crate::models::ItemData;
 
@@ -61,6 +63,7 @@ pub const CHANNEL_TABS: &[&str] = &["Videos", "Shorts", "Streams", "Playlists", 
 
 pub const VIDEO_ACTION_ITEMS: &[&str] = &[
     "Watch",
+    "Watch (Select Quality)",
     "Play All",
     "Download",
     "Download (Audio Only)",
@@ -77,6 +80,7 @@ pub const VIDEO_ACTION_ITEMS: &[&str] = &[
 
 const VIDEO_ACTION_DISPLAY: &[&str] = &[
     "👁️  Watch",
+    "🎚️  Watch (Select Quality)",
     "▶️  Play All",
     "⬇️  Download",
     "🎵  Download (Audio Only)",
@@ -190,6 +194,7 @@ fn screen_emoji_and_title(screen: &Screen) -> (&'static str, &'static str) {
         Screen::TwitchMenu { .. }      => ("🟣", "Twitch"),
         Screen::List(_)                => ("📋", "List"),
         Screen::VideoActions(_)        => ("🎬", "Video Actions"),
+        Screen::QualitySelect(_)       => ("🎚️", "Select Quality"),
         Screen::ChannelActions(_)      => ("📋", "Channel"),
         Screen::TwitchStreamActions(_) => ("🟣", "Stream Actions"),
         Screen::TwitchVodActions(_)    => ("🎬", "VOD Actions"),
@@ -214,6 +219,7 @@ fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
             render_list_screen(f, area, &ls, app);
         }
         Screen::VideoActions(ref va) => render_video_actions(f, area, va),
+        Screen::QualitySelect(ref qs) => render_quality_select(f, area, qs),
         Screen::ChannelActions(ref ca) => {
             let mut labels: Vec<String> =
                 CHANNEL_TABS_DISPLAY.iter().map(|s| s.to_string()).collect();
@@ -719,6 +725,38 @@ fn render_video_actions(f: &mut Frame, area: Rect, va: &VideoActionsScreen) {
     f.render_widget(List::new(list_items).block(action_block), chunks[1]);
 }
 
+fn render_quality_select(f: &mut Frame, area: Rect, qs: &QualitySelectScreen) {
+    let accent = TEAL;
+    let list_items: Vec<ListItem> = qs
+        .options
+        .iter()
+        .enumerate()
+        .map(|(i, opt)| {
+            let label = if opt.eq_ignore_ascii_case("best") {
+                "Best available".to_string()
+            } else {
+                format!("{}p", opt)
+            };
+            let style = if i == qs.selected {
+                Style::default()
+                    .fg(accent)
+                    .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+            } else {
+                Style::default().fg(LAVENDER)
+            };
+            ListItem::new(format!("  {}  ", label)).style(style)
+        })
+        .collect();
+
+    let title = format!(" 🎚️  Quality — {} ", truncate_str(&qs.video.title, 50));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Span::styled(title, Style::default().fg(accent).add_modifier(Modifier::BOLD)))
+        .border_style(Style::default().fg(accent));
+
+    f.render_widget(List::new(list_items).block(block), area);
+}
+
 // ── Search input ──────────────────────────────────────────────────────────────
 
 fn render_search_input(f: &mut Frame, area: Rect, prompt: &str, input: &str) {
@@ -889,6 +927,7 @@ fn keybind_hints(screen: &Screen) -> String {
             "↑↓ navigate   type to filter   ↵ select   ⎋ back   q quit".to_string()
         }
         Screen::VideoActions(_)
+        | Screen::QualitySelect(_)
         | Screen::ChannelActions(_)
         | Screen::TwitchStreamActions(_)
         | Screen::TwitchVodActions(_) => "↑↓ navigate   ↵ select   ⎋ back".to_string(),

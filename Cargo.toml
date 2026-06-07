@@ -2,6 +2,9 @@
 name = "vidi"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "A terminal UI for YouTube and Twitch"
+repository = "https://github.com/Fel-2/Vidi"
 
 [[bin]]
 name = "vidi"

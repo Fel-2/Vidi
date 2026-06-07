@@ -4,7 +4,6 @@ use serde_json::Value;
 use crate::config::{twitch_subs_file};
 use crate::models::{TwitchStream, TwitchVod};
 
-const CLIENT_ID: &str = "kd1unb4k3ax4ap17e6be367k5likhw";
 const USER_AGENT: &str =
     "Dalvik/2.1.0 (Linux; U; Android 9; SM-G960F Build/PPR1.180610.011) tv.twitch.android.app/6.0.0";
 
@@ -12,7 +11,7 @@ const USER_AGENT: &str =
 // Twitch GQL search
 // ---------------------------------------------------------------------------
 
-pub async fn search_twitch(query: &str) -> Result<Vec<TwitchStream>> {
+pub async fn search_twitch(query: &str, client_id: &str) -> Result<Vec<TwitchStream>> {
     let client = reqwest::Client::new();
     let payload = serde_json::json!({
         "query": "query Search($q: String!) { searchFor(userQuery: $q, platform: \"mobile\", target: {index: CHANNELS}) { channels { items { login stream { viewersCount } broadcastSettings { title game { displayName } } } } } }",
@@ -21,7 +20,7 @@ pub async fn search_twitch(query: &str) -> Result<Vec<TwitchStream>> {
 
     let resp: Value = client
         .post("https://gql.twitch.tv/gql")
-        .header("Client-Id", CLIENT_ID)
+        .header("Client-Id", client_id)
         .header("User-Agent", USER_AGENT)
         .header("Content-Type", "application/json")
         .json(&payload)

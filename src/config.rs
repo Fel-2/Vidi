@@ -43,12 +43,16 @@ impl Default for YoutubeConfig {
 // Twitch config
 // ---------------------------------------------------------------------------
 
+/// Default Twitch GQL client-id (the public Twitch Android app client-id).
+pub const DEFAULT_TWITCH_CLIENT_ID: &str = "kd1unb4k3ax4ap17e6be367k5likhw";
+
 #[derive(Debug, Clone)]
 pub struct TwitchConfig {
     pub player: String,
     pub quality: String,
     pub editor: String,
     pub enable_preview: bool,
+    pub client_id: String,
 }
 
 impl Default for TwitchConfig {
@@ -58,6 +62,7 @@ impl Default for TwitchConfig {
             quality: "best".into(),
             editor: std::env::var("EDITOR").unwrap_or_else(|_| "nano".into()),
             enable_preview: false,
+            client_id: DEFAULT_TWITCH_CLIENT_ID.into(),
         }
     }
 }
@@ -66,20 +71,32 @@ impl Default for TwitchConfig {
 // Unified config
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Keybindings
+// ---------------------------------------------------------------------------
+
+/// Optional single-character key overrides. When a field is `Some(c)`, pressing
+/// that character is treated as the corresponding navigation action. Defaults
+/// (arrow keys, vim h/j/k/l, Enter, Esc, q) always remain active.
+#[derive(Debug, Clone, Default)]
+pub struct Keybindings {
+    pub up: Option<char>,
+    pub down: Option<char>,
+    pub select: Option<char>,
+    pub back: Option<char>,
+    pub quit: Option<char>,
+    pub page_up: Option<char>,
+    pub page_down: Option<char>,
+}
+
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct Config {
     pub youtube: YoutubeConfig,
     pub twitch: TwitchConfig,
+    pub keys: Keybindings,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            youtube: YoutubeConfig::default(),
-            twitch: TwitchConfig::default(),
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // File paths helpers
@@ -233,6 +250,7 @@ pub fn load_twitch_config() -> Result<TwitchConfig> {
                 "QUALITY" => cfg.quality = val.to_string(),
                 "PREFERRED_EDITOR" | "EDITOR" => cfg.editor = val.to_string(),
                 "ENABLE_PREVIEW" => cfg.enable_preview = val.to_lowercase() == "true",
+                "CLIENT_ID" if !val.is_empty() => cfg.client_id = val.to_string(),
                 _ => {}
             }
         }
@@ -240,17 +258,39 @@ pub fn load_twitch_config() -> Result<TwitchConfig> {
     Ok(cfg)
 }
 
+/// Read a single-char keybinding override from vidi.conf content.
+fn parse_key(content: &str, key: &str) -> Option<char> {
+    parse_kv(content, key).and_then(|v| v.trim().chars().next())
+}
+
+pub fn load_keybindings() -> Keybindings {
+    let path = youtube_config_file();
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return Keybindings::default();
+    };
+    Keybindings {
+        up: parse_key(&content, "KEY_UP"),
+        down: parse_key(&content, "KEY_DOWN"),
+        select: parse_key(&content, "KEY_SELECT"),
+        back: parse_key(&content, "KEY_BACK"),
+        quit: parse_key(&content, "KEY_QUIT"),
+        page_up: parse_key(&content, "KEY_PAGE_UP"),
+        page_down: parse_key(&content, "KEY_PAGE_DOWN"),
+    }
+}
+
 pub fn load_config() -> Result<Config> {
     Ok(Config {
         youtube: load_youtube_config()?,
         twitch: load_twitch_config()?,
+        keys: load_keybindings(),
     })
 }
 
 fn shellexpand_tilde(s: &str) -> String {
-    if s.starts_with('~') {
+    if let Some(rest) = s.strip_prefix('~') {
         if let Some(home) = dirs::home_dir() {
-            return home.to_string_lossy().to_string() + &s[1..];
+            return home.to_string_lossy().to_string() + rest;
         }
     }
     s.to_string()
@@ -276,7 +316,15 @@ pub fn write_default_youtube_config() -> Result<()> {
          NO_OF_SEARCH_RESULTS: 30\n\
          SEARCH_HISTORY: true\n\
          DOWNLOAD_DIRECTORY: {}\n\
-         PRETTY_PRINT: true\n",
+         PRETTY_PRINT: true\n\
+         # Optional single-key overrides (arrows + vim keys always work):\n\
+         # KEY_UP: k\n\
+         # KEY_DOWN: j\n\
+         # KEY_SELECT: l\n\
+         # KEY_BACK: h\n\
+         # KEY_QUIT: q\n\
+         # KEY_PAGE_UP: u\n\
+         # KEY_PAGE_DOWN: d\n",
         std::env::var("EDITOR").unwrap_or_else(|_| "nano".into()),
         download_dir.display()
     );
@@ -296,8 +344,10 @@ pub fn write_default_twitch_config() -> Result<()> {
          PREFERRED_EDITOR=\"{}\"\n\
          PLAYER=\"mpv\"\n\
          QUALITY=\"best\"\n\
-         ENABLE_PREVIEW=\"false\"\n",
-        editor
+         ENABLE_PREVIEW=\"false\"\n\
+         # Override the Twitch GQL client-id used for search (optional).\n\
+         # CLIENT_ID=\"{}\"\n",
+        editor, DEFAULT_TWITCH_CLIENT_ID
     );
     std::fs::write(path, content)?;
     Ok(())

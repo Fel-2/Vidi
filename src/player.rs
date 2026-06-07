@@ -54,6 +54,18 @@ pub async fn run_background(args: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// Build an mpv `--ytdl-format` value for the requested quality.
+/// "best" (or empty) selects the highest available; otherwise `quality` is
+/// treated as a max height in pixels (e.g. "1080").
+pub fn ytdl_format(quality: &str) -> String {
+    let q = quality.trim();
+    if q.is_empty() || q.eq_ignore_ascii_case("best") {
+        "bestvideo+bestaudio/best".to_string()
+    } else {
+        format!("bestvideo[height<={q}]+bestaudio/best[height<={q}]/best")
+    }
+}
+
 /// Build mpv arguments for watching a video.
 pub fn mpv_watch_args(url: &str, title: &str, quality: &str) -> Vec<String> {
     vec![
@@ -61,7 +73,7 @@ pub fn mpv_watch_args(url: &str, title: &str, quality: &str) -> Vec<String> {
         url.to_string(),
         format!("--force-media-title={}", title),
         format!("--script-opts-append=mpris-title={}", title),
-        format!("--ytdl-format=bestvideo[height<={}]+bestaudio/best[height<={}]/best", quality, quality),
+        format!("--ytdl-format={}", ytdl_format(quality)),
     ]
 }
 
