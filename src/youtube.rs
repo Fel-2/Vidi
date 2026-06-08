@@ -2,8 +2,8 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 
 use crate::config::{
-    youtube_custom_playlists_file, youtube_feed_cache_file, youtube_recent_file,
-    youtube_saved_file, youtube_search_history_file,
+    youtube_channel_avatars_file, youtube_channel_names_file, youtube_custom_playlists_file,
+    youtube_feed_cache_file, youtube_recent_file, youtube_saved_file, youtube_search_history_file,
 };
 use crate::models::{Channel, CustomPlaylist, RecentVideos, SavedVideos, Video};
 
@@ -639,7 +639,34 @@ pub fn subscribe_channel(url: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Parse one subscriptions-file line into (url, optional name).
+/// Format: `URL` or `URL  Optional Channel Name` (split at first whitespace).
+fn parse_sub_line(line: &str) -> Option<(String, Option<String>)> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') {
+        return None;
+    }
+    match line.split_once(char::is_whitespace) {
+        Some((url, rest)) => {
+            let name = rest.trim();
+            let name = (!name.is_empty()).then(|| name.to_string());
+            Some((url.to_string(), name))
+        }
+        None => Some((line.to_string(), None)),
+    }
+}
+
 pub fn load_subscriptions() -> Vec<String> {
+    load_subscriptions_with_names()
+        .into_iter()
+        .map(|(url, _)| url)
+        .collect()
+}
+
+/// Like `load_subscriptions` but also returns an inline channel name when the
+/// line provides one (`URL  Channel Name`), letting the channels view skip the
+/// slow yt-dlp name lookup entirely.
+pub fn load_subscriptions_with_names() -> Vec<(String, Option<String>)> {
     let path = crate::config::youtube_subs_file();
     if !path.exists() {
         return vec![];
@@ -647,8 +674,7 @@ pub fn load_subscriptions() -> Vec<String> {
     std::fs::read_to_string(&path)
         .unwrap_or_default()
         .lines()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(parse_sub_line)
         .collect()
 }
 
@@ -698,26 +724,166 @@ pub async fn channel_from_url(url: &str) -> Channel {
     }
 }
 
-pub async fn fetch_channels() -> Result<Vec<Channel>> {
-    let subs = load_subscriptions();
-    use tokio::task::JoinSet;
-    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
-    let mut set: JoinSet<Channel> = JoinSet::new();
-    for url in subs {
-        let sem = sem.clone();
-        set.spawn(async move {
-            let _permit = sem.acquire_owned().await.ok();
-            channel_from_url(&url).await
-        });
+/// Disk cache of resolved channel names, keyed by subscription URL. Channel
+/// names are stable, so this is persisted indefinitely; only newly added
+/// subscriptions need a (slow) yt-dlp lookup.
+fn load_channel_name_cache() -> std::collections::HashMap<String, String> {
+    std::fs::read_to_string(youtube_channel_names_file())
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_default()
+}
+
+fn save_channel_name_cache(map: &std::collections::HashMap<String, String>) {
+    let path = youtube_channel_names_file();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
     }
-    let mut channels = Vec::new();
-    while let Some(res) = set.join_next().await {
-        if let Ok(ch) = res {
-            channels.push(ch);
+    if let Ok(json) = serde_json::to_string(map) {
+        std::fs::write(path, json).ok();
+    }
+}
+
+pub async fn fetch_channels() -> Result<Vec<Channel>> {
+    let subs = load_subscriptions_with_names();
+    let cache = load_channel_name_cache();
+
+    // Resolve only subscriptions that have neither an inline name nor a cached
+    // one — inline names in the file mean zero yt-dlp work.
+    let uncached: Vec<String> = subs
+        .iter()
+        .filter(|(url, name)| name.is_none() && !cache.contains_key(url))
+        .map(|(url, _)| url.clone())
+        .collect();
+
+    let mut resolved = std::collections::HashMap::new();
+    if !uncached.is_empty() {
+        use tokio::task::JoinSet;
+        let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
+        let mut set: JoinSet<Channel> = JoinSet::new();
+        for url in uncached {
+            let sem = sem.clone();
+            set.spawn(async move {
+                let _permit = sem.acquire_owned().await.ok();
+                channel_from_url(&url).await
+            });
+        }
+        while let Some(res) = set.join_next().await {
+            if let Ok(ch) = res {
+                resolved.insert(ch.url.clone(), ch.name);
+            }
         }
     }
+
+    // Build the result list: inline name → cached name → freshly resolved → URL.
+    let mut channels: Vec<Channel> = subs
+        .into_iter()
+        .map(|(url, inline_name)| {
+            let name = inline_name
+                .or_else(|| cache.get(&url).cloned())
+                .or_else(|| resolved.get(&url).cloned())
+                .unwrap_or_else(|| url.clone());
+            Channel { name, url }
+        })
+        .collect();
+
+    // Persist the merged cache for next time.
+    if !resolved.is_empty() {
+        let mut merged = cache;
+        merged.extend(resolved);
+        save_channel_name_cache(&merged);
+    }
+
     channels.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(channels)
+}
+
+/// Disk cache of resolved channel avatar image URLs, keyed by channel URL.
+fn load_channel_avatar_cache() -> std::collections::HashMap<String, String> {
+    std::fs::read_to_string(youtube_channel_avatars_file())
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_default()
+}
+
+fn save_channel_avatar_cache(map: &std::collections::HashMap<String, String>) {
+    let path = youtube_channel_avatars_file();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    if let Ok(json) = serde_json::to_string(map) {
+        std::fs::write(path, json).ok();
+    }
+}
+
+/// Pick a channel's avatar image URL from a yt-dlp `thumbnails` array.
+/// yt-dlp lists both the wide banner and the square avatar; prefer the avatar
+/// (explicit `avatar_uncropped`, else the most square image), not the banner.
+fn best_avatar_url(json: &Value) -> Option<String> {
+    let thumbs = json.get("thumbnails")?.as_array()?;
+
+    let url_of = |t: &Value| t.get("url").and_then(|u| u.as_str()).map(|s| s.to_string());
+
+    // 1. Explicit full-resolution avatar.
+    if let Some(t) = thumbs
+        .iter()
+        .find(|t| t.get("id").and_then(|i| i.as_str()) == Some("avatar_uncropped"))
+    {
+        if let Some(u) = url_of(t) {
+            return Some(u);
+        }
+    }
+
+    // 2. Most square sized image (avatars are square; banners are wide).
+    if let Some(t) = thumbs
+        .iter()
+        .filter_map(|t| {
+            let w = t.get("width").and_then(|w| w.as_i64())?;
+            let h = t.get("height").and_then(|h| h.as_i64())?;
+            Some((t, (w - h).abs(), w * h))
+        })
+        // Smallest width/height difference wins; tiebreak on larger area.
+        .min_by(|a, b| a.1.cmp(&b.1).then(b.2.cmp(&a.2)))
+        .map(|(t, _, _)| t)
+    {
+        if let Some(u) = url_of(t) {
+            return Some(u);
+        }
+    }
+
+    // 3. Fallback: last entry.
+    thumbs.last().and_then(url_of)
+}
+
+/// Caps concurrent yt-dlp avatar resolutions so fast-scrolling the channel list
+/// can't spawn a process storm.
+fn avatar_resolve_semaphore() -> &'static tokio::sync::Semaphore {
+    static SEM: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    SEM.get_or_init(|| tokio::sync::Semaphore::new(3))
+}
+
+/// Resolve a channel's avatar image URL, using a disk cache to avoid repeat
+/// yt-dlp calls. Only the first lookup for a given channel hits yt-dlp.
+pub async fn channel_avatar_url(channel_url: &str) -> Option<String> {
+    let cache = load_channel_avatar_cache();
+    if let Some(url) = cache.get(channel_url) {
+        return Some(url.clone());
+    }
+
+    let _permit = avatar_resolve_semaphore().acquire().await.ok()?;
+    // Re-check the cache: another task may have resolved this while we waited.
+    if let Some(url) = load_channel_avatar_cache().get(channel_url) {
+        return Some(url.clone());
+    }
+
+    let json = run_yt_dlp(channel_url, 1).await.ok()?;
+    let avatar = best_avatar_url(&json)?;
+
+    let mut merged = load_channel_avatar_cache();
+    merged.insert(channel_url.to_string(), avatar.clone());
+    save_channel_avatar_cache(&merged);
+
+    Some(avatar)
 }
 
 #[cfg(test)]
@@ -907,6 +1073,75 @@ mod tests {
         });
         let videos = parse_playlist_json(&json);
         assert_eq!(videos[0].channel, "UploaderName");
+    }
+
+    // ── parse_sub_line ──────────────────────────────────────────────────
+
+    #[test]
+    fn parse_sub_line_url_only() {
+        assert_eq!(
+            parse_sub_line("https://youtube.com/channel/UC123"),
+            Some(("https://youtube.com/channel/UC123".to_string(), None))
+        );
+    }
+
+    #[test]
+    fn parse_sub_line_with_name() {
+        assert_eq!(
+            parse_sub_line("https://youtube.com/channel/UC123  My Cool Channel"),
+            Some((
+                "https://youtube.com/channel/UC123".to_string(),
+                Some("My Cool Channel".to_string())
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_sub_line_skips_comments_and_blanks() {
+        assert_eq!(parse_sub_line("# a comment"), None);
+        assert_eq!(parse_sub_line("   "), None);
+    }
+
+    // ── best_avatar_url ─────────────────────────────────────────────────
+
+    #[test]
+    fn best_avatar_prefers_uncropped() {
+        let json = json!({"thumbnails": [
+            {"id": "5", "url": "banner.jpg", "width": 2560, "height": 424},
+            {"id": "7", "url": "square.jpg", "width": 900, "height": 900},
+            {"id": "avatar_uncropped", "url": "avatar.jpg"},
+        ]});
+        assert_eq!(best_avatar_url(&json).as_deref(), Some("avatar.jpg"));
+    }
+
+    #[test]
+    fn best_avatar_picks_square_over_banner() {
+        // No explicit avatar_uncropped → most square wins, not widest banner.
+        let json = json!({"thumbnails": [
+            {"id": "5", "url": "banner.jpg", "width": 2560, "height": 424},
+            {"id": "7", "url": "square.jpg", "width": 900, "height": 900},
+        ]});
+        assert_eq!(best_avatar_url(&json).as_deref(), Some("square.jpg"));
+    }
+
+    #[test]
+    fn best_avatar_fallback_last() {
+        let json = json!({"thumbnails": [
+            {"id": "a", "url": "one.jpg"},
+            {"id": "b", "url": "two.jpg"},
+        ]});
+        assert_eq!(best_avatar_url(&json).as_deref(), Some("two.jpg"));
+    }
+
+    #[test]
+    fn parse_sub_line_tab_separated() {
+        assert_eq!(
+            parse_sub_line("https://youtube.com/@handle\tDisplay Name"),
+            Some((
+                "https://youtube.com/@handle".to_string(),
+                Some("Display Name".to_string())
+            ))
+        );
     }
 }
 

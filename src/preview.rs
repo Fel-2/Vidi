@@ -24,8 +24,45 @@ pub fn trigger_preview_for_selected(app: &mut App, ls: &ListScreen) {
             let cache_key = format!("twitchvod_{}", v.id);
             trigger_preview_raw(app, cache_key, v.thumbnail.clone());
         }
+        ItemData::Channel(ref c) => trigger_channel_preview(app, &c.url),
         _ => {}
     }
+}
+
+/// Cache key (and on-disk PNG filename stem) for a channel's avatar preview.
+pub fn channel_cache_key(channel_url: &str) -> String {
+    let id: String = channel_url
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(channel_url)
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || matches!(ch, '@' | '_' | '-') { ch } else { '_' })
+        .collect();
+    format!("channel_{}", id)
+}
+
+/// Resolve (lazily, via yt-dlp the first time) and download a channel's avatar.
+/// The avatar URL is disk-cached, so only the first hover spawns a yt-dlp; later
+/// hovers are a plain HTTP fetch like any other thumbnail.
+fn trigger_channel_preview(app: &mut App, channel_url: &str) {
+    let cache_key = channel_cache_key(channel_url);
+    if app.preview_cache.contains_key(&cache_key) {
+        return;
+    }
+    app.preview_cache.insert(cache_key.clone(), PreviewEntry { ready: false });
+    let tx = app.tx.clone();
+    let cache_dir = config::youtube_preview_cache_dir();
+    let channel_url = channel_url.to_string();
+    tokio::spawn(async move {
+        let Some(avatar_url) = crate::youtube::channel_avatar_url(&channel_url).await else {
+            return;
+        };
+        let ready = fetch_thumbnail(&cache_key, &avatar_url, &cache_dir).await;
+        if ready {
+            let _ = tx.send(AppEvent::PreviewReady { video_id: cache_key });
+        }
+    });
 }
 
 /// If the video's preview isn't cached yet, spawn an async task to download
@@ -105,6 +142,7 @@ fn selected_video_id(app: &App) -> Option<String> {
                 ItemData::TwitchVod(v) if !v.thumbnail.is_empty() => {
                     Some(format!("twitchvod_{}", v.id))
                 }
+                ItemData::Channel(c) => Some(channel_cache_key(&c.url)),
                 _ => None,
             };
         }

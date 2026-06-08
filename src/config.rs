@@ -145,6 +145,14 @@ pub fn youtube_feed_cache_file() -> PathBuf {
     youtube_cache_dir().join("feed_cache.json")
 }
 
+pub fn youtube_channel_names_file() -> PathBuf {
+    youtube_cache_dir().join("channel_names.json")
+}
+
+pub fn youtube_channel_avatars_file() -> PathBuf {
+    youtube_cache_dir().join("channel_avatars.json")
+}
+
 pub fn youtube_preview_cache_dir() -> PathBuf {
     youtube_cache_dir().join("preview_images")
 }

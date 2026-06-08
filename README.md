@@ -63,6 +63,21 @@ Config files are created automatically on first run:
 | `~/.config/vidi/twitch_subs` | Twitch usernames (one per line) |
 | `~/.config/vidi/custom_playlists.json` | Custom playlist URLs |
 
+In `subscriptions`, each line is a channel URL, optionally followed by whitespace
+and a display name (`https://www.youtube.com/channel/UC…  My Channel`). Providing
+the name inline lets the Channels view skip the per-channel `yt-dlp` lookup, so it
+loads instantly. Lines without a name are resolved once and cached in
+`~/.cache/vidi/channel_names.json`.
+
+To annotate an existing URL-only file in place, run:
+
+```bash
+scripts/name-subscriptions.py
+```
+
+It reuses the cache where possible and only calls `yt-dlp` (4 at a time) for
+names it doesn't already know. The original is backed up to `subscriptions.bak`.
+
 ## Keybindings
 
 | Key | Action |

@@ -506,6 +506,7 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
         ItemData::YoutubeVideo(v) => Some(v.id.clone()),
         ItemData::TwitchStream(s) if s.is_live => Some(format!("twitch_{}", s.login)),
         ItemData::TwitchVod(v) if !v.thumbnail.is_empty() => Some(format!("twitchvod_{}", v.id)),
+        ItemData::Channel(c) => Some(crate::preview::channel_cache_key(&c.url)),
         _ => None,
     });
 
@@ -656,6 +657,16 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
                         Span::styled(format_date(&v.upload_date), Style::default().fg(TEXT)),
                     ]));
                 }
+            }
+            ItemData::Channel(c) => {
+                lines.push(Line::from(vec![
+                    label("Channel  "),
+                    Span::styled(truncate_str(&c.name, inner_w.saturating_sub(9)), Style::default().fg(TEXT)),
+                ]));
+                lines.push(Line::from(vec![
+                    label("URL      "),
+                    Span::styled(truncate_str(&c.url, inner_w.saturating_sub(9)), Style::default().fg(SUBTEXT)),
+                ]));
             }
             _ => {}
         }
