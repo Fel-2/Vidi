@@ -138,6 +138,16 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
             });
         }
 
+        SearchContext::ImportSubscriptions => match crate::subs_import::import_file(input.trim()) {
+            Ok((added, skipped)) => {
+                app.set_success(format!(
+                    "Imported {} subscription(s), {} already present.",
+                    added, skipped
+                ));
+            }
+            Err(e) => app.set_error(format!("Import failed: {}", e)),
+        },
+
         SearchContext::ChannelSearch(channel_url) => {
             let tx = app.tx.clone();
             let limit = app.config.youtube.no_of_search_results as u32;

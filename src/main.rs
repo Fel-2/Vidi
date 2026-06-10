@@ -6,6 +6,7 @@ mod innertube;
 mod models;
 mod player;
 mod preview;
+mod subs_import;
 mod twitch;
 mod ui;
 mod youtube;

@@ -202,6 +202,7 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
             let misc_items = [
                 "Explore Channels",
                 "Explore Playlists",
+                "Import Subscriptions",
                 "Search History",
                 "Edit Search History",
                 "Edit Custom Playlists",

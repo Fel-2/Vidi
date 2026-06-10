@@ -151,6 +151,8 @@ pub enum SearchContext {
     ExploreChannels,
     ExplorePlaylists,
     ChannelSearch(String), // channel url
+    /// Prompt for a file path to import subscriptions from.
+    ImportSubscriptions,
 }
 
 #[derive(Debug, Clone)]

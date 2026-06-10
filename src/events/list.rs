@@ -319,6 +319,15 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
                             context: SearchContext::ExplorePlaylists,
                         }));
                     }
+                    "Import Subscriptions" => {
+                        app.push_screen(Screen::SearchInput(SearchInputScreen {
+                            prompt:
+                                "Import subscriptions (path to NewPipe JSON / OPML / Takeout CSV)"
+                                    .to_string(),
+                            input: String::new(),
+                            context: SearchContext::ImportSubscriptions,
+                        }));
+                    }
                     "Search History" => {
                         let history = youtube::load_search_history();
                         if history.is_empty() {
