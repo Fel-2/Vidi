@@ -20,6 +20,8 @@ jobs:
             ~/.cargo/git
             target
           key: cargo-${{ hashFiles('Cargo.lock') }}
+      - name: Install rustfmt and clippy
+        run: rustup component add rustfmt clippy
       - name: Format check
         run: cargo fmt --check
       - name: Clippy
