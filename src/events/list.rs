@@ -86,10 +86,7 @@ pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: Lis
             handle_list_item_select(app, item, ls.context.clone()).await;
         }
         KeyCode::Tab => {
-            let selected_data = ls
-                .filtered_items()
-                .get(ls.selected)
-                .map(|i| i.data.clone());
+            let selected_data = ls.filtered_items().get(ls.selected).map(|i| i.data.clone());
             if let Some(ItemData::YoutubeVideo(v)) = selected_data {
                 if matches!(ls.context, ListContext::Queue) {
                     app.queue.retain(|q| q.id != v.id);
@@ -413,8 +410,7 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
                     return;
                 }
                 let urls: Vec<String> = app.queue.iter().map(|v| v.url.clone()).collect();
-                let mut args =
-                    player::mpv_queue_args(&urls, &app.config.youtube.video_quality);
+                let mut args = player::mpv_queue_args(&urls, &app.config.youtube.video_quality);
                 args.extend(player::mpv_sponsorblock_args(
                     &app.config.youtube.sponsorblock,
                 ));

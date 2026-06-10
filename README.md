@@ -14,11 +14,16 @@ A terminal UI for YouTube and Twitch, written in Rust.
 ## Features
 
 **YouTube**
+- ⚡ Fast metadata via the Innertube API (no yt-dlp subprocess for lists; yt-dlp remains as fallback)
 - 🔥 Trending videos
 - 🔍 Search with history
-- 📡 Subscription feed (parallel fetch, sorted by upload time)
+- 📡 Subscription feed (parallel fetch, sorted by upload time, instant cached startup with background refresh)
 - 📋 Browse subscribed channels (Videos / Shorts / Streams / Playlists)
 - ➕ Subscribe to channels directly from Explore Channels
+- 📥 Import subscriptions from NewPipe JSON, OPML or YouTube Takeout CSV (Miscellaneous → Import Subscriptions)
+- ⏭ Play-next queue (`Tab` to queue from any list, YouTube → Queue to play)
+- ⏯ Watch progress: playback position is tracked via mpv IPC and resumed on the next watch
+- 🚫 SponsorBlock: mark segments as mpv chapters, cut them from downloads (`SPONSORBLOCK` in `vidi.conf`)
 - 🎯 Custom playlists
 - 🕐 Recently watched
 - 🔎 Channel search via Miscellaneous → Explore Channels
@@ -35,6 +40,7 @@ A terminal UI for YouTube and Twitch, written in Rust.
 - Download support (video + audio-only, single + batch)
 - Save/unsave videos to a local watchlist
 - Filter bar on all list screens
+- Help overlay on `?`
 
 ## Dependencies
 
@@ -43,7 +49,17 @@ A terminal UI for YouTube and Twitch, written in Rust.
 - [`streamlink`](https://streamlink.github.io/) — Twitch streams
 - A graphics-capable terminal for thumbnail previews: [Kitty](https://sw.kovidgoyal.net/kitty/), [Ghostty](https://ghostty.org/), [iTerm2](https://iterm2.com/), or [WezTerm](https://wezterm.org/) (optional)
 
-## Build
+## Install
+
+### Arch / Artix
+
+```bash
+git clone https://codeberg.org/Fel/Vidi.git
+cd Vidi/packaging
+makepkg -si
+```
+
+### From source
 
 ```bash
 cargo build --release
@@ -57,7 +73,7 @@ Config files are created automatically on first run:
 
 | File | Purpose |
 |------|---------|
-| `~/.config/vidi/vidi.conf` | Player, quality, result limits |
+| `~/.config/vidi/vidi.conf` | Player, quality, result limits, `WATCH_PROGRESS`, `SPONSORBLOCK` |
 | `~/.config/vidi/subscriptions` | YouTube channel URLs (one per line) |
 | `~/.config/vidi/twitch.conf` | Twitch player and quality settings |
 | `~/.config/vidi/twitch_subs` | Twitch usernames (one per line) |
@@ -88,6 +104,8 @@ names it doesn't already know. The original is backed up to `subscriptions.bak`.
 | `Enter` | Select |
 | `Esc` | Back |
 | `q` | Quit |
+| `Tab` | Add video to queue (in Queue: remove) |
+| `?` | Help overlay |
 | Type anything | Filter list |
 | `Backspace` | Delete filter character |
 | Mouse wheel | Scroll lists |

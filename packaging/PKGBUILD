@@ -1,0 +1,52 @@
+# Maintainer: Fel <exwin00@proton.me>
+pkgname=vidi-git
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Terminal UI for YouTube and Twitch"
+arch=('x86_64' 'aarch64')
+url="https://codeberg.org/Fel/Vidi"
+license=('MIT')
+depends=('yt-dlp' 'mpv')
+optdepends=(
+  'streamlink: Twitch live stream status and playback'
+  'kitty: inline thumbnail previews'
+  'ghostty: inline thumbnail previews'
+  'wezterm: inline thumbnail previews'
+)
+makedepends=('cargo' 'git')
+provides=('vidi')
+conflicts=('vidi')
+source=("git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd Vidi
+  git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' ||
+    printf "0.2.0.r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+  cd Vidi
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd Vidi
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd Vidi
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --release
+}
+
+package() {
+  cd Vidi
+  install -Dm755 "target/release/vidi" "$pkgdir/usr/bin/vidi"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

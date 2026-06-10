@@ -366,7 +366,8 @@ fn keybind_hints(screen: &Screen) -> String {
             "↑↓ navigate   ↵ select   ? help   q quit".to_string()
         }
         Screen::List(_) => {
-            "↑↓ navigate   type to filter   ↵ select   ⇥ queue   ⎋ back   ? help   q quit".to_string()
+            "↑↓ navigate   type to filter   ↵ select   ⇥ queue   ⎋ back   ? help   q quit"
+                .to_string()
         }
         Screen::VideoActions(_)
         | Screen::QualitySelect(_)
