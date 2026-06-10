@@ -18,6 +18,10 @@ pub struct YoutubeConfig {
     pub search_history: bool,
     pub download_directory: PathBuf,
     pub pretty_print: bool,
+    /// Track playback position via mpv IPC and resume on next watch.
+    pub watch_progress: bool,
+    /// SponsorBlock categories for mpv/yt-dlp ("" disables; e.g. "sponsor,selfpromo").
+    pub sponsorblock: String,
 }
 
 impl Default for YoutubeConfig {
@@ -35,6 +39,8 @@ impl Default for YoutubeConfig {
             search_history: true,
             download_directory: home.join("Videos").join("vidi"),
             pretty_print: true,
+            watch_progress: true,
+            sponsorblock: String::new(),
         }
     }
 }
@@ -233,6 +239,16 @@ pub fn load_youtube_config() -> Result<YoutubeConfig> {
     if let Some(v) = parse_kv(&content, "PRETTY_PRINT") {
         cfg.pretty_print = v.to_lowercase() == "true";
     }
+    if let Some(v) = parse_kv(&content, "WATCH_PROGRESS") {
+        cfg.watch_progress = v.to_lowercase() == "true";
+    }
+    if let Some(v) = parse_kv(&content, "SPONSORBLOCK") {
+        cfg.sponsorblock = if v.to_lowercase() == "false" {
+            String::new()
+        } else {
+            v
+        };
+    }
     Ok(cfg)
 }
 
@@ -333,6 +349,11 @@ pub fn write_default_youtube_config() -> Result<()> {
          SEARCH_HISTORY: true\n\
          DOWNLOAD_DIRECTORY: {}\n\
          PRETTY_PRINT: true\n\
+         # Track playback position via mpv IPC and resume on next watch:\n\
+         WATCH_PROGRESS: true\n\
+         # SponsorBlock categories to skip (mpv) / remove (downloads).\n\
+         # Comma-separated, e.g. sponsor,selfpromo,interaction — empty disables:\n\
+         # SPONSORBLOCK: sponsor\n\
          # Optional single-key overrides (arrows + vim keys always work):\n\
          # KEY_UP: k\n\
          # KEY_DOWN: j\n\

@@ -15,6 +15,29 @@ use crossterm::event::{self, KeyCode};
 
 use super::open_url_in_browser;
 
+/// Launch mpv for a single video with resume + IPC progress tracking and
+/// optional SponsorBlock chapter marking.
+async fn watch_video(app: &mut App, video: &Video, quality: &str) {
+    let mut args = player::mpv_watch_args(&video.url, &video.title, quality);
+    args.extend(player::mpv_sponsorblock_args(
+        &app.config.youtube.sponsorblock,
+    ));
+    if app.config.youtube.watch_progress && !video.id.is_empty() {
+        if let Some(start) = crate::progress::resume_position(&video.id) {
+            args.push(format!("--start={}", start as u64));
+        }
+        let socket = crate::progress::socket_path();
+        args.extend(crate::progress::mpv_ipc_args(&socket));
+        tokio::spawn(crate::progress::track(socket, video.id.clone()));
+    }
+    let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    let _ = player::launch_external(&args_str).await;
+    if app.config.youtube.update_recent {
+        youtube::add_to_recent(video, app.config.youtube.no_of_recent).ok();
+    }
+    app.watched_ids.insert(video.id.clone());
+}
+
 pub(super) async fn handle_video_actions(
     app: &mut App,
     key: event::KeyEvent,
@@ -67,15 +90,7 @@ pub(super) async fn handle_quality_select(
         KeyCode::Enter => {
             let quality = qs.options[qs.selected].clone();
             let video = qs.video.clone();
-            let update_recent = app.config.youtube.update_recent;
-            let no_of_recent = app.config.youtube.no_of_recent;
-            let args = player::mpv_watch_args(&video.url, &video.title, &quality);
-            let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            let _ = player::launch_external(&args_str).await;
-            if update_recent {
-                youtube::add_to_recent(&video, no_of_recent).ok();
-            }
-            app.watched_ids.insert(video.id.clone());
+            watch_video(app, &video, &quality).await;
             app.pop_screen();
         }
         KeyCode::Esc => {
@@ -87,19 +102,12 @@ pub(super) async fn handle_quality_select(
 
 async fn video_action_execute(app: &mut App, video: &Video, action: &str) {
     let quality = &app.config.youtube.video_quality.clone();
-    let update_recent = app.config.youtube.update_recent;
-    let no_of_recent = app.config.youtube.no_of_recent;
     let download_dir = app.config.youtube.download_directory.clone();
+    let sponsorblock = app.config.youtube.sponsorblock.clone();
 
     match action {
         "Watch" => {
-            let args = player::mpv_watch_args(&video.url, &video.title, quality);
-            let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            let _ = player::launch_external(&args_str).await;
-            if update_recent {
-                youtube::add_to_recent(video, no_of_recent).ok();
-            }
-            app.watched_ids.insert(video.id.clone());
+            watch_video(app, video, quality).await;
         }
         "Watch (Select Quality)" => {
             app.push_screen(Screen::QualitySelect(QualitySelectScreen {
@@ -110,7 +118,8 @@ async fn video_action_execute(app: &mut App, video: &Video, action: &str) {
         }
         "Play All" => {
             let playlist_url = video.playlist_url.as_deref().unwrap_or(&video.url);
-            let args = player::mpv_watch_args(playlist_url, &video.title, quality);
+            let mut args = player::mpv_watch_args(playlist_url, &video.title, quality);
+            args.extend(player::mpv_sponsorblock_args(&sponsorblock));
             let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
             let _ = player::launch_external(&args_str).await;
         }
@@ -119,8 +128,10 @@ async fn video_action_execute(app: &mut App, video: &Video, action: &str) {
             let dl_dir = download_dir.clone();
             let tx = app.tx.clone();
             let title = video.title.clone();
+            let sb = sponsorblock.clone();
             tokio::spawn(async move {
-                let args = player::ytdlp_download_args(&url, &dl_dir);
+                let mut args = player::ytdlp_download_args(&url, &dl_dir);
+                args.extend(player::ytdlp_sponsorblock_args(&sb));
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = tx.send(AppEvent::DownloadStarted(format!("Downloading: {}", title)));
                 match player::run_background(&args_str).await {
@@ -144,8 +155,10 @@ async fn video_action_execute(app: &mut App, video: &Video, action: &str) {
             let dl_dir = download_dir.clone();
             let tx = app.tx.clone();
             let title = video.title.clone();
+            let sb = sponsorblock.clone();
             tokio::spawn(async move {
-                let args = player::ytdlp_download_audio_args(&url, &dl_dir);
+                let mut args = player::ytdlp_download_audio_args(&url, &dl_dir);
+                args.extend(player::ytdlp_sponsorblock_args(&sb));
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = tx.send(AppEvent::DownloadStarted(format!(
                     "Downloading audio: {}",
@@ -174,8 +187,10 @@ async fn video_action_execute(app: &mut App, video: &Video, action: &str) {
                 .unwrap_or_else(|| video.url.clone());
             let dl_dir = download_dir.clone();
             let tx = app.tx.clone();
+            let sb = sponsorblock.clone();
             tokio::spawn(async move {
-                let args = player::ytdlp_download_args(&playlist_url, &dl_dir);
+                let mut args = player::ytdlp_download_args(&playlist_url, &dl_dir);
+                args.extend(player::ytdlp_sponsorblock_args(&sb));
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = tx.send(AppEvent::DownloadStarted("Downloading all…".to_string()));
                 match player::run_background(&args_str).await {
@@ -197,8 +212,10 @@ async fn video_action_execute(app: &mut App, video: &Video, action: &str) {
                 .unwrap_or_else(|| video.url.clone());
             let dl_dir = download_dir.clone();
             let tx = app.tx.clone();
+            let sb = sponsorblock.clone();
             tokio::spawn(async move {
-                let args = player::ytdlp_download_audio_args(&playlist_url, &dl_dir);
+                let mut args = player::ytdlp_download_audio_args(&playlist_url, &dl_dir);
+                args.extend(player::ytdlp_sponsorblock_args(&sb));
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = tx.send(AppEvent::DownloadStarted(
                     "Downloading all audio…".to_string(),

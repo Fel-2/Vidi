@@ -77,6 +77,29 @@ pub fn mpv_watch_args(url: &str, title: &str, quality: &str) -> Vec<String> {
     ]
 }
 
+/// mpv arguments that make yt-dlp mark SponsorBlock segments as chapters
+/// (visible and skippable in mpv's OSC). Empty categories → no args.
+pub fn mpv_sponsorblock_args(categories: &str) -> Vec<String> {
+    let cats = categories.trim();
+    if cats.is_empty() {
+        return vec![];
+    }
+    vec![format!(
+        "--ytdl-raw-options-append=sponsorblock-mark={}",
+        cats
+    )]
+}
+
+/// yt-dlp arguments that cut SponsorBlock segments out of downloads.
+/// Empty categories → no args.
+pub fn ytdlp_sponsorblock_args(categories: &str) -> Vec<String> {
+    let cats = categories.trim();
+    if cats.is_empty() {
+        return vec![];
+    }
+    vec!["--sponsorblock-remove".to_string(), cats.to_string()]
+}
+
 /// Build streamlink arguments.
 pub fn streamlink_args(url: &str, quality: &str, player: &str) -> Vec<String> {
     vec![
