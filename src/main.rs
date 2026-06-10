@@ -36,6 +36,15 @@ async fn main() -> Result<()> {
     // Warn about missing external tools before grabbing the terminal.
     check_dependencies(&cfg);
 
+    // Restore the terminal before printing a panic, otherwise the shell is
+    // left in raw mode with no echo and the panic message is unreadable.
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(stdout(), LeaveAlternateScreen, DisableMouseCapture);
+        default_panic(info);
+    }));
+
     // Set up terminal
     enable_raw_mode()?;
     let mut stdout = stdout();
