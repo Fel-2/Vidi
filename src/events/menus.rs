@@ -189,6 +189,13 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
             let ls = App::make_video_list("Saved Videos", videos, ListContext::YoutubeVideoActions);
             app.push_screen(Screen::List(ls));
         }
+        "Queue" => {
+            if app.queue.is_empty() {
+                app.set_info("Queue is empty — press Tab on a video to queue it.");
+                return;
+            }
+            app.push_screen(Screen::List(super::list::build_queue_screen(app)));
+        }
         "Edit Config" => {
             let path = config::youtube_config_file();
             let editor = app.config.youtube.editor.clone();

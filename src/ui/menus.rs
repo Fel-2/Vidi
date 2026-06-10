@@ -28,6 +28,7 @@ const YOUTUBE_MENU_DISPLAY: &[&str] = &[
     "🎯  Custom Playlists",
     "🕐  Recent",
     "❤️  Saved Videos",
+    "⏭  Queue",
     "⚙️  Edit Config",
     "🎲  Miscellaneous",
 ];

@@ -22,6 +22,7 @@ const VIDEO_ACTION_DISPLAY: &[&str] = &[
     "❤️  Save",
     "💔  UnSave",
     "📋  Save Playlist",
+    "⏭  Add to Queue",
     "🌐  Open in Browser",
     "←  Back",
 ];

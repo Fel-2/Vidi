@@ -78,6 +78,8 @@ pub enum ListContext {
     SearchHistory,
     Miscellaneous,
     ChannelTab(String), // channel url
+    /// Play-next queue screen (virtual play/clear rows + queued videos).
+    Queue,
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +290,8 @@ pub struct App {
     pub graphics: GraphicsProtocol,
     /// Help overlay visible (toggled with `?`).
     pub show_help: bool,
+    /// Play-next queue (Tab on a list enqueues, played via YouTube → Queue).
+    pub queue: Vec<crate::models::Video>,
 }
 
 impl App {
@@ -308,6 +312,7 @@ impl App {
             preview_thumb_area: None,
             graphics: GraphicsProtocol::detect(),
             show_help: false,
+            queue: Vec::new(),
         }
     }
 

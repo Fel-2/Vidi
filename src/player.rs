@@ -77,6 +77,16 @@ pub fn mpv_watch_args(url: &str, title: &str, quality: &str) -> Vec<String> {
     ]
 }
 
+/// Build mpv arguments to play several URLs back to back (the queue).
+pub fn mpv_queue_args(urls: &[String], quality: &str) -> Vec<String> {
+    let mut args = vec![
+        "mpv".to_string(),
+        format!("--ytdl-format={}", ytdl_format(quality)),
+    ];
+    args.extend(urls.iter().cloned());
+    args
+}
+
 /// mpv arguments that make yt-dlp mark SponsorBlock segments as chapters
 /// (visible and skippable in mpv's OSC). Empty categories → no args.
 pub fn mpv_sponsorblock_args(categories: &str) -> Vec<String> {

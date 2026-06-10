@@ -85,6 +85,27 @@ pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: Lis
             app.pop_screen();
             handle_list_item_select(app, item, ls.context.clone()).await;
         }
+        KeyCode::Tab => {
+            let selected_data = ls
+                .filtered_items()
+                .get(ls.selected)
+                .map(|i| i.data.clone());
+            if let Some(ItemData::YoutubeVideo(v)) = selected_data {
+                if matches!(ls.context, ListContext::Queue) {
+                    app.queue.retain(|q| q.id != v.id);
+                    app.set_info(format!("Removed from queue: {}", v.title));
+                    *app.current_screen_mut() = Screen::List(build_queue_screen(app));
+                    return;
+                }
+                if app.queue.iter().any(|q| q.id == v.id) {
+                    app.set_info(format!("Already queued: {}", v.title));
+                } else {
+                    app.queue.push(v.clone());
+                    app.set_success(format!("Queued ({}): {}", app.queue.len(), v.title));
+                }
+            }
+            *app.current_screen_mut() = Screen::List(ls);
+        }
         KeyCode::Char(c) => {
             ls.filter.push(c);
             ls.selected = 0;
@@ -94,6 +115,24 @@ pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: Lis
         }
         _ => {}
     }
+}
+
+/// Queue screen: two virtual command rows followed by the queued videos.
+pub(super) fn build_queue_screen(app: &App) -> ListScreen {
+    let mut ls = App::make_video_list("Queue", app.queue.clone(), ListContext::Queue);
+    let mut items = vec![
+        ListItem {
+            display: "▶  Play Queue".to_string(),
+            data: ItemData::Text("play".to_string()),
+        },
+        ListItem {
+            display: "✖  Clear Queue".to_string(),
+            data: ItemData::Text("clear".to_string()),
+        },
+    ];
+    items.append(&mut ls.items);
+    ls.items = items;
+    ls
 }
 
 /// Spawn the next subscription-feed fetch when the user presses "Load More".
@@ -366,6 +405,42 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
                 }
             }
         }
+
+        ListContext::Queue => match item.data {
+            ItemData::Text(cmd) if cmd == "play" => {
+                if app.queue.is_empty() {
+                    app.set_info("Queue is empty.");
+                    return;
+                }
+                let urls: Vec<String> = app.queue.iter().map(|v| v.url.clone()).collect();
+                let mut args =
+                    player::mpv_queue_args(&urls, &app.config.youtube.video_quality);
+                args.extend(player::mpv_sponsorblock_args(
+                    &app.config.youtube.sponsorblock,
+                ));
+                let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+                let _ = player::launch_external(&args_str).await;
+                if app.config.youtube.update_recent {
+                    for v in &app.queue {
+                        youtube::add_to_recent(v, app.config.youtube.no_of_recent).ok();
+                    }
+                }
+                let watched: Vec<String> = app.queue.iter().map(|v| v.id.clone()).collect();
+                app.watched_ids.extend(watched);
+                app.queue.clear();
+            }
+            ItemData::Text(cmd) if cmd == "clear" => {
+                app.queue.clear();
+                app.set_success("Queue cleared.");
+            }
+            ItemData::YoutubeVideo(video) => {
+                app.push_screen(Screen::VideoActions(VideoActionsScreen {
+                    video,
+                    selected: 0,
+                }));
+            }
+            _ => {}
+        },
 
         ListContext::ChannelTab(channel_url) => {
             // Item is a video

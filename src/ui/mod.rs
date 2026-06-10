@@ -42,6 +42,7 @@ pub const YOUTUBE_MENU_ITEMS: &[&str] = &[
     "Custom Playlists",
     "Recent",
     "Saved Videos",
+    "Queue",
     "Edit Config",
     "Miscellaneous",
 ];
@@ -66,6 +67,7 @@ pub const VIDEO_ACTION_ITEMS: &[&str] = &[
     "Save",
     "UnSave",
     "Save Playlist",
+    "Add to Queue",
     "Open in Browser",
     "Back",
 ];
@@ -148,6 +150,7 @@ fn render_help(f: &mut Frame, area: Rect, keys: &crate::config::Keybindings) {
         ("Ctrl-C".to_string(), "quit"),
         ("type".to_string(), "filter current list"),
         ("⌫".to_string(), "delete filter character"),
+        ("⇥".to_string(), "queue video (in Queue: remove)"),
         ("?".to_string(), "this help"),
     ];
     let extra = [
@@ -363,7 +366,7 @@ fn keybind_hints(screen: &Screen) -> String {
             "↑↓ navigate   ↵ select   ? help   q quit".to_string()
         }
         Screen::List(_) => {
-            "↑↓ navigate   type to filter   ↵ select   ⎋ back   ? help   q quit".to_string()
+            "↑↓ navigate   type to filter   ↵ select   ⇥ queue   ⎋ back   ? help   q quit".to_string()
         }
         Screen::VideoActions(_)
         | Screen::QualitySelect(_)

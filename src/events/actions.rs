@@ -247,6 +247,14 @@ async fn video_action_execute(app: &mut App, video: &Video, action: &str) {
             youtube::save_playlist_as_custom(video).ok();
             app.set_success("Playlist saved to custom playlists.");
         }
+        "Add to Queue" => {
+            if app.queue.iter().any(|q| q.id == video.id) {
+                app.set_info(format!("Already queued: {}", video.title));
+            } else {
+                app.queue.push(video.clone());
+                app.set_success(format!("Queued ({}): {}", app.queue.len(), video.title));
+            }
+        }
         "Open in Browser" => {
             let url = video.url.clone();
             open_url_in_browser(&url);
