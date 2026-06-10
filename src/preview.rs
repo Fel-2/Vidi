@@ -37,7 +37,13 @@ pub fn channel_cache_key(channel_url: &str) -> String {
         .next()
         .unwrap_or(channel_url)
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() || matches!(ch, '@' | '_' | '-') { ch } else { '_' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '@' | '_' | '-') {
+                ch
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("channel_{}", id)
 }
@@ -50,7 +56,8 @@ fn trigger_channel_preview(app: &mut App, channel_url: &str) {
     if app.preview_cache.contains_key(&cache_key) {
         return;
     }
-    app.preview_cache.insert(cache_key.clone(), PreviewEntry { ready: false });
+    app.preview_cache
+        .insert(cache_key.clone(), PreviewEntry { ready: false });
     let tx = app.tx.clone();
     let cache_dir = config::youtube_preview_cache_dir();
     let channel_url = channel_url.to_string();
@@ -60,7 +67,9 @@ fn trigger_channel_preview(app: &mut App, channel_url: &str) {
         };
         let ready = fetch_thumbnail(&cache_key, &avatar_url, &cache_dir).await;
         if ready {
-            let _ = tx.send(AppEvent::PreviewReady { video_id: cache_key });
+            let _ = tx.send(AppEvent::PreviewReady {
+                video_id: cache_key,
+            });
         }
     });
 }
@@ -72,7 +81,8 @@ pub fn trigger_preview(app: &mut App, video: &Video) {
         return;
     }
     // Insert a placeholder so we don't launch duplicate tasks.
-    app.preview_cache.insert(video.id.clone(), PreviewEntry { ready: false });
+    app.preview_cache
+        .insert(video.id.clone(), PreviewEntry { ready: false });
     let tx = app.tx.clone();
     let video_id = video.id.clone();
     let thumbnail_url = video.thumbnail.clone();
@@ -90,22 +100,21 @@ pub fn trigger_preview_raw(app: &mut App, cache_key: String, thumbnail_url: Stri
     if app.preview_cache.contains_key(&cache_key) {
         return;
     }
-    app.preview_cache.insert(cache_key.clone(), PreviewEntry { ready: false });
+    app.preview_cache
+        .insert(cache_key.clone(), PreviewEntry { ready: false });
     let tx = app.tx.clone();
     let cache_dir = config::youtube_preview_cache_dir();
     tokio::spawn(async move {
         let ready = fetch_thumbnail(&cache_key, &thumbnail_url, &cache_dir).await;
         if ready {
-            let _ = tx.send(AppEvent::PreviewReady { video_id: cache_key });
+            let _ = tx.send(AppEvent::PreviewReady {
+                video_id: cache_key,
+            });
         }
     });
 }
 
-async fn fetch_thumbnail(
-    video_id: &str,
-    thumbnail_url: &str,
-    cache_dir: &std::path::Path,
-) -> bool {
+async fn fetch_thumbnail(video_id: &str, thumbnail_url: &str, cache_dir: &std::path::Path) -> bool {
     let _ = tokio::fs::create_dir_all(cache_dir).await;
     let img_path = cache_dir.join(format!("{}.png", video_id));
     if img_path.exists() {
@@ -154,12 +163,14 @@ fn selected_video_id(app: &App) -> Option<String> {
 /// Assumes standard 8×16px terminal cells (so 1 row is twice as tall as 1 col in pixels).
 fn png_aspect_fit(png_bytes: &[u8], max_c: u16, max_r: u16) -> (u16, u16) {
     // Read width/height from the PNG IHDR chunk (bytes 16–23).
-    let (img_w, img_h) = if png_bytes.len() >= 24
-        && png_bytes[0..8] == *b"\x89PNG\r\n\x1a\n"
-    {
+    let (img_w, img_h) = if png_bytes.len() >= 24 && png_bytes[0..8] == *b"\x89PNG\r\n\x1a\n" {
         let w = u32::from_be_bytes([png_bytes[16], png_bytes[17], png_bytes[18], png_bytes[19]]);
         let h = u32::from_be_bytes([png_bytes[20], png_bytes[21], png_bytes[22], png_bytes[23]]);
-        if w > 0 && h > 0 { (w as f32, h as f32) } else { (16.0, 9.0) }
+        if w > 0 && h > 0 {
+            (w as f32, h as f32)
+        } else {
+            (16.0, 9.0)
+        }
     } else {
         (16.0, 9.0) // fallback: assume 16:9
     };
@@ -207,16 +218,26 @@ pub fn kitty_update_display(app: &mut App) {
     app.kitty_displayed = None;
 
     // Check if image is ready.
-    let Some(entry) = app.preview_cache.get(video_id) else { return; };
-    if !entry.ready { return; }
+    let Some(entry) = app.preview_cache.get(video_id) else {
+        return;
+    };
+    if !entry.ready {
+        return;
+    }
 
-    let Some((tx, ty, tw, th)) = app.preview_thumb_area else { return; };
+    let Some((tx, ty, tw, th)) = app.preview_thumb_area else {
+        return;
+    };
 
     let img_path = config::youtube_preview_cache_dir().join(format!("{}.png", video_id));
-    if !img_path.exists() { return; }
+    if !img_path.exists() {
+        return;
+    }
 
     // Read the PNG bytes from disk.
-    let Ok(png_bytes) = std::fs::read(&img_path) else { return; };
+    let Ok(png_bytes) = std::fs::read(&img_path) else {
+        return;
+    };
 
     // Compute display dimensions that preserve aspect ratio.
     // Terminal cells are ~8px wide × 16px tall, so 1 cell-row = 2 cell-columns in pixel height.

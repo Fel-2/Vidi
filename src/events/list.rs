@@ -1,9 +1,8 @@
 //! Generic list screen: navigation, filtering, Load More, item selection.
 
 use crate::app::{
-    App, AppEvent, ChannelActionsScreen, ListContext, ListScreen, Screen,
-    SearchContext, SearchInputScreen, TwitchStreamActionsScreen, TwitchVodActionsScreen,
-    VideoActionsScreen,
+    App, AppEvent, ChannelActionsScreen, ListContext, ListScreen, Screen, SearchContext,
+    SearchInputScreen, TwitchStreamActionsScreen, TwitchVodActionsScreen, VideoActionsScreen,
 };
 use crate::models::{ChannelTabLoadMore, ItemData, ListItem, SubFeedLoadMore, Video};
 use crate::{config, player, preview, twitch, youtube};
@@ -114,7 +113,10 @@ fn execute_load_more(app: &mut App, ls: &ListScreen, lm: &SubFeedLoadMore) {
         })
         .collect();
     let tx = app.tx.clone();
-    app.loading = Some(format!("Loading more (up to {} per channel)…", playlist_end));
+    app.loading = Some(format!(
+        "Loading more (up to {} per channel)…",
+        playlist_end
+    ));
 
     // Determine the next Load More config (escalate: 30 → 100 → none).
     let next_lm = if playlist_end < 100 {
@@ -190,11 +192,7 @@ fn execute_channel_load_more(app: &mut App, ls: &ListScreen, clm: &ChannelTabLoa
     });
 }
 
-async fn handle_list_item_select(
-    app: &mut App,
-    item: ListItem,
-    context: ListContext,
-) {
+async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListContext) {
     match context {
         ListContext::YoutubeVideoActions => {
             if let ItemData::YoutubeVideo(video) = item.data {
@@ -335,24 +333,19 @@ async fn handle_list_item_select(
                                 data: ItemData::Text(q),
                             })
                             .collect();
-                        let ls = ListScreen::new(
-                            "Search History",
-                            items,
-                            ListContext::SearchHistory,
-                        );
+                        let ls =
+                            ListScreen::new("Search History", items, ListContext::SearchHistory);
                         app.push_screen(Screen::List(ls));
                     }
                     "Edit Search History" => {
                         let path = config::youtube_search_history_file();
                         let editor = app.config.youtube.editor.clone();
-                        let _ = player::launch_external(&[&editor, &path.to_string_lossy()])
-                            .await;
+                        let _ = player::launch_external(&[&editor, &path.to_string_lossy()]).await;
                     }
                     "Edit Custom Playlists" => {
                         let path = config::youtube_custom_playlists_file();
                         let editor = app.config.youtube.editor.clone();
-                        let _ = player::launch_external(&[&editor, &path.to_string_lossy()])
-                            .await;
+                        let _ = player::launch_external(&[&editor, &path.to_string_lossy()]).await;
                     }
                     "Clear Search History" => {
                         let path = config::youtube_search_history_file();

@@ -39,7 +39,10 @@ pub async fn run_yt_dlp(url: &str, playlist_end: u32) -> Result<Value> {
     if !output.status.success() || output.stdout.is_empty() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let msg = stderr.lines().last().unwrap_or("unknown error").trim();
-        anyhow::bail!("yt-dlp failed: {}", if msg.is_empty() { "no output" } else { msg });
+        anyhow::bail!(
+            "yt-dlp failed: {}",
+            if msg.is_empty() { "no output" } else { msg }
+        );
     }
 
     serde_json::from_slice(&output.stdout).context("Failed to parse yt-dlp JSON output")
@@ -140,9 +143,7 @@ fn json_to_video(j: &Value, fallback_channel: &str, fallback_channel_url: &str) 
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let view_count = j
-        .get("view_count")
-        .and_then(|v| v.as_u64());
+    let view_count = j.get("view_count").and_then(|v| v.as_u64());
     // yt-dlp flat-playlist returns a `thumbnails` array, not a `thumbnail` string.
     // Pick the last (highest-res) entry, or fall back to a known-good URL.
     let thumbnail = j
@@ -269,12 +270,14 @@ pub async fn fetch_playlist(playlist_url: &str, limit: u32) -> Result<Vec<Video>
     // /search) still goes through yt-dlp below.
     use crate::innertube::{self, UrlKind};
     let fast = match innertube::classify_url(playlist_url) {
-        UrlKind::ChannelTab(base, tab) => {
-            innertube::channel_tab_videos(&base, tab, limit as usize).await.ok()
-        }
+        UrlKind::ChannelTab(base, tab) => innertube::channel_tab_videos(&base, tab, limit as usize)
+            .await
+            .ok(),
         UrlKind::Playlist(id) => innertube::playlist_videos(&id, limit as usize).await.ok(),
         UrlKind::SearchResults { query, sp } => {
-            innertube::search_videos(&query, &sp, limit as usize).await.ok()
+            innertube::search_videos(&query, &sp, limit as usize)
+                .await
+                .ok()
         }
         UrlKind::Unsupported => None,
     };
@@ -393,13 +396,11 @@ pub async fn fetch_subscription_feed(
 }
 
 pub fn sort_videos_newest_first(videos: &mut [Video]) {
-    videos.sort_by(|a, b| {
-        match (b.timestamp, a.timestamp) {
-            (Some(bt), Some(at)) => bt.cmp(&at),
-            (Some(_), None) => std::cmp::Ordering::Greater,
-            (None, Some(_)) => std::cmp::Ordering::Less,
-            (None, None) => b.upload_date.cmp(&a.upload_date),
-        }
+    videos.sort_by(|a, b| match (b.timestamp, a.timestamp) {
+        (Some(bt), Some(at)) => bt.cmp(&at),
+        (Some(_), None) => std::cmp::Ordering::Greater,
+        (None, Some(_)) => std::cmp::Ordering::Less,
+        (None, None) => b.upload_date.cmp(&a.upload_date),
     });
 }
 
@@ -664,7 +665,10 @@ pub fn append_search_history(query: &str) -> anyhow::Result<()> {
 pub fn subscribe_channel(url: &str) -> anyhow::Result<()> {
     let trimmed = url.trim();
     let existing = load_subscriptions();
-    if existing.iter().any(|s| s.trim_end_matches('/') == trimmed.trim_end_matches('/')) {
+    if existing
+        .iter()
+        .any(|s| s.trim_end_matches('/') == trimmed.trim_end_matches('/'))
+    {
         anyhow::bail!("Already subscribed");
     }
     let path = crate::config::youtube_subs_file();
@@ -1197,4 +1201,3 @@ mod tests {
         );
     }
 }
-

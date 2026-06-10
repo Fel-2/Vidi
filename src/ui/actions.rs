@@ -35,27 +35,47 @@ pub(super) fn render_video_actions(f: &mut Frame, area: Rect, va: &VideoActionsS
     // Video info panel
     let info = vec![
         Line::from(vec![
-            Span::styled("Title    ", Style::default().fg(TEAL).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Title    ",
+                Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(va.video.title.clone(), Style::default().fg(TEXT)),
         ]),
         Line::from(vec![
-            Span::styled("Channel  ", Style::default().fg(TEAL).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Channel  ",
+                Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(va.video.channel.clone(), Style::default().fg(TEXT)),
         ]),
         Line::from(vec![
-            Span::styled("Date     ", Style::default().fg(TEAL).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Date     ",
+                Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(va.video.upload_date.clone(), Style::default().fg(TEXT)),
         ]),
         Line::from(vec![
-            Span::styled("Duration ", Style::default().fg(TEAL).add_modifier(Modifier::BOLD)),
-            Span::styled(format!(" {}", va.video.duration_string), Style::default().fg(TEXT)),
+            Span::styled(
+                "Duration ",
+                Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(" {}", va.video.duration_string),
+                Style::default().fg(TEXT),
+            ),
         ]),
     ];
     let info_block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(" 🎬  Video Info ", Style::default().fg(TEAL).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " 🎬  Video Info ",
+            Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+        ))
         .border_style(Style::default().fg(TEAL));
-    let info_para = Paragraph::new(info).block(info_block).wrap(Wrap { trim: true });
+    let info_para = Paragraph::new(info)
+        .block(info_block)
+        .wrap(Wrap { trim: true });
     f.render_widget(info_para, chunks[0]);
 
     // Actions list
@@ -79,7 +99,10 @@ pub(super) fn render_video_actions(f: &mut Frame, area: Rect, va: &VideoActionsS
 
     let action_block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(" ⚡  Actions ", Style::default().fg(accent).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " ⚡  Actions ",
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+        ))
         .border_style(Style::default().fg(accent));
 
     f.render_widget(List::new(list_items).block(action_block), chunks[1]);
@@ -111,7 +134,10 @@ pub(super) fn render_quality_select(f: &mut Frame, area: Rect, qs: &QualitySelec
     let title = format!(" 🎚️  Quality — {} ", truncate_str(&qs.video.title, 50));
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(title, Style::default().fg(accent).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            title,
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+        ))
         .border_style(Style::default().fg(accent));
 
     f.render_widget(List::new(list_items).block(block), area);

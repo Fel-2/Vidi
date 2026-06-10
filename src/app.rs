@@ -1,5 +1,8 @@
 use crate::config::Config;
-use crate::models::{Channel, ChannelTabLoadMore, CustomPlaylist, ItemData, ListItem, SubFeedLoadMore, TwitchStream, TwitchVod, Video};
+use crate::models::{
+    Channel, ChannelTabLoadMore, CustomPlaylist, ItemData, ListItem, SubFeedLoadMore, TwitchStream,
+    TwitchVod, Video,
+};
 use tokio::sync::mpsc;
 
 // ---------------------------------------------------------------------------
@@ -84,7 +87,7 @@ pub enum ListContext {
 /// Cached thumbnail state for a video.
 #[derive(Debug, Clone)]
 pub struct PreviewEntry {
-    pub ready: bool,  // image has been downloaded to disk
+    pub ready: bool, // image has been downloaded to disk
 }
 
 #[derive(Debug, Clone)]
@@ -132,7 +135,6 @@ impl ListScreen {
                 .collect()
         }
     }
-
 }
 
 #[derive(Debug, Clone)]
@@ -202,15 +204,9 @@ pub struct TwitchVodActionsScreen {
 
 #[derive(Debug, Clone)]
 pub enum Screen {
-    ModeSelect {
-        selected: usize,
-    },
-    YoutubeMenu {
-        selected: usize,
-    },
-    TwitchMenu {
-        selected: usize,
-    },
+    ModeSelect { selected: usize },
+    YoutubeMenu { selected: usize },
+    TwitchMenu { selected: usize },
     List(ListScreen),
     VideoActions(VideoActionsScreen),
     QualitySelect(QualitySelectScreen),
@@ -311,11 +307,15 @@ impl App {
     }
 
     pub fn current_screen(&self) -> &Screen {
-        self.screen_stack.last().expect("screen stack is never empty")
+        self.screen_stack
+            .last()
+            .expect("screen stack is never empty")
     }
 
     pub fn current_screen_mut(&mut self) -> &mut Screen {
-        self.screen_stack.last_mut().expect("screen stack is never empty")
+        self.screen_stack
+            .last_mut()
+            .expect("screen stack is never empty")
     }
 
     pub fn push_screen(&mut self, screen: Screen) {
@@ -359,7 +359,12 @@ impl App {
                 } else if !v.upload_date.is_empty() {
                     // YYYYMMDD → YYYY-MM-DD
                     if v.upload_date.len() == 8 {
-                        format!("{}-{}-{}", &v.upload_date[..4], &v.upload_date[4..6], &v.upload_date[6..8])
+                        format!(
+                            "{}-{}-{}",
+                            &v.upload_date[..4],
+                            &v.upload_date[4..6],
+                            &v.upload_date[6..8]
+                        )
                     } else {
                         v.upload_date.clone()
                     }
@@ -495,9 +500,18 @@ mod tests {
     #[test]
     fn list_screen_filter() {
         let items = vec![
-            ListItem { display: "Alpha Video".to_string(), data: ItemData::Text("a".to_string()) },
-            ListItem { display: "Beta Stream".to_string(), data: ItemData::Text("b".to_string()) },
-            ListItem { display: "Alpha Stream".to_string(), data: ItemData::Text("c".to_string()) },
+            ListItem {
+                display: "Alpha Video".to_string(),
+                data: ItemData::Text("a".to_string()),
+            },
+            ListItem {
+                display: "Beta Stream".to_string(),
+                data: ItemData::Text("b".to_string()),
+            },
+            ListItem {
+                display: "Alpha Stream".to_string(),
+                data: ItemData::Text("c".to_string()),
+            },
         ];
         let mut ls = ListScreen::new("Test", items, ListContext::Miscellaneous);
         ls.filter = "alpha".to_string();
@@ -510,8 +524,14 @@ mod tests {
     #[test]
     fn list_screen_empty_filter_returns_all() {
         let items = vec![
-            ListItem { display: "A".to_string(), data: ItemData::Text("a".to_string()) },
-            ListItem { display: "B".to_string(), data: ItemData::Text("b".to_string()) },
+            ListItem {
+                display: "A".to_string(),
+                data: ItemData::Text("a".to_string()),
+            },
+            ListItem {
+                display: "B".to_string(),
+                data: ItemData::Text("b".to_string()),
+            },
         ];
         let ls = ListScreen::new("Test", items, ListContext::Miscellaneous);
         assert_eq!(ls.filtered_items().len(), 2);
@@ -519,9 +539,10 @@ mod tests {
 
     #[test]
     fn list_screen_total_rows_with_load_more() {
-        let items = vec![
-            ListItem { display: "A".to_string(), data: ItemData::Text("a".to_string()) },
-        ];
+        let items = vec![ListItem {
+            display: "A".to_string(),
+            data: ItemData::Text("a".to_string()),
+        }];
         let mut ls = ListScreen::new("Test", items, ListContext::Miscellaneous);
         assert_eq!(ls.total_rows(), 1);
         ls.load_more = Some(crate::models::SubFeedLoadMore {

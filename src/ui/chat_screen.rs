@@ -19,11 +19,17 @@ pub(super) fn render_chat(f: &mut Frame, area: Rect, cs: &ChatScreen) {
         String::new()
     };
 
-    let header = format!(" 💬  #{} | Connected: {}{} ", cs.channel, cs.connected, status_suffix);
+    let header = format!(
+        " 💬  #{} | Connected: {}{} ",
+        cs.channel, cs.connected, status_suffix
+    );
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(header, Style::default().fg(MAUVE).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            header,
+            Style::default().fg(MAUVE).add_modifier(Modifier::BOLD),
+        ))
         .border_style(Style::default().fg(MAUVE));
 
     let inner = block.inner(area);

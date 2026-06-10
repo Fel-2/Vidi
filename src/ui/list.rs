@@ -24,14 +24,23 @@ pub(super) fn render_list_screen(f: &mut Frame, area: Rect, ls: &ListScreen, app
     // Filter bar
     let filter_block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(" 🔍  Filter ", Style::default().fg(YELLOW).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " 🔍  Filter ",
+            Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
+        ))
         .border_style(Style::default().fg(YELLOW));
     let filter_text = if ls.filter.is_empty() {
-        Span::styled("type to filter…", Style::default().fg(OVERLAY).add_modifier(Modifier::ITALIC))
+        Span::styled(
+            "type to filter…",
+            Style::default().fg(OVERLAY).add_modifier(Modifier::ITALIC),
+        )
     } else {
         Span::styled(format!("{}_", ls.filter), Style::default().fg(TEXT))
     };
-    f.render_widget(Paragraph::new(Line::from(filter_text)).block(filter_block), outer[0]);
+    f.render_widget(
+        Paragraph::new(Line::from(filter_text)).block(filter_block),
+        outer[0],
+    );
 
     // Body: list | preview
     let body = Layout::default()
@@ -62,7 +71,7 @@ fn render_item_list(f: &mut Frame, area: Rect, ls: &ListScreen, app: &App) {
                 _ => (false, false),
             };
             let prefix = match (saved, watched) {
-                (true, true)  => " ❤✓",
+                (true, true) => " ❤✓",
                 (true, false) => " ❤ ",
                 (false, true) => "  ✓",
                 (false, false) => "   ",
@@ -82,7 +91,10 @@ fn render_item_list(f: &mut Frame, area: Rect, ls: &ListScreen, app: &App) {
         .collect();
 
     // "Load More" row (sub feed or channel tab)
-    let load_more_label = ls.load_more.as_ref().map(|lm| &lm.label)
+    let load_more_label = ls
+        .load_more
+        .as_ref()
+        .map(|lm| &lm.label)
         .or_else(|| ls.channel_load_more.as_ref().map(|lm| &lm.label));
     if let Some(label) = load_more_label {
         let lm_idx = filtered.len();
@@ -162,10 +174,12 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
         )));
     }
 
-    let label = |s: &str| Span::styled(
-        s.to_string(),
-        Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
-    );
+    let label = |s: &str| {
+        Span::styled(
+            s.to_string(),
+            Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+        )
+    };
 
     // Per-item metadata
     if let Some(item) = selected {
@@ -173,11 +187,17 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
             ItemData::YoutubeVideo(v) => {
                 lines.push(Line::from(vec![
                     label("Title    "),
-                    Span::styled(truncate_str(&v.title, inner_w.saturating_sub(9)), Style::default().fg(TEXT)),
+                    Span::styled(
+                        truncate_str(&v.title, inner_w.saturating_sub(9)),
+                        Style::default().fg(TEXT),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     label("Channel  "),
-                    Span::styled(truncate_str(&v.channel, inner_w.saturating_sub(9)), Style::default().fg(TEXT)),
+                    Span::styled(
+                        truncate_str(&v.channel, inner_w.saturating_sub(9)),
+                        Style::default().fg(TEXT),
+                    ),
                 ]));
                 let date_str = if let Some(ts) = v.timestamp {
                     relative_time(ts)
@@ -213,7 +233,9 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
                         )));
                         let remaining = inner_h.saturating_sub(lines.len()).saturating_sub(1);
                         for (i, dline) in desc.lines().enumerate() {
-                            if i >= remaining { break; }
+                            if i >= remaining {
+                                break;
+                            }
                             lines.push(Line::from(Span::styled(
                                 truncate_str(dline, inner_w),
                                 Style::default().fg(SUBTEXT),
@@ -230,16 +252,29 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
                 };
                 lines.push(Line::from(vec![
                     label("Channel  "),
-                    Span::styled(truncate_str(&s.login, inner_w.saturating_sub(9)), Style::default().fg(TEXT)),
+                    Span::styled(
+                        truncate_str(&s.login, inner_w.saturating_sub(9)),
+                        Style::default().fg(TEXT),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     label("Status   "),
-                    Span::styled(if s.is_live { "🔴 LIVE" } else { "⚫ Offline" }, status_style),
+                    Span::styled(
+                        if s.is_live {
+                            "🔴 LIVE"
+                        } else {
+                            "⚫ Offline"
+                        },
+                        status_style,
+                    ),
                 ]));
                 if !s.game.is_empty() {
                     lines.push(Line::from(vec![
                         label("Game     "),
-                        Span::styled(truncate_str(&s.game, inner_w.saturating_sub(9)), Style::default().fg(TEXT)),
+                        Span::styled(
+                            truncate_str(&s.game, inner_w.saturating_sub(9)),
+                            Style::default().fg(TEXT),
+                        ),
                     ]));
                 }
                 if s.viewers > 0 {
@@ -250,7 +285,10 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
                 }
                 if !s.title.is_empty() {
                     lines.push(Line::from(""));
-                    lines.push(Line::from(Span::styled("Title", Style::default().fg(TEAL).add_modifier(Modifier::BOLD))));
+                    lines.push(Line::from(Span::styled(
+                        "Title",
+                        Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+                    )));
                     lines.push(Line::from(Span::styled(
                         truncate_str(&s.title, inner_w),
                         Style::default().fg(SUBTEXT),
@@ -260,7 +298,10 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
             ItemData::TwitchVod(v) => {
                 lines.push(Line::from(vec![
                     label("Title    "),
-                    Span::styled(truncate_str(&v.title, inner_w.saturating_sub(9)), Style::default().fg(TEXT)),
+                    Span::styled(
+                        truncate_str(&v.title, inner_w.saturating_sub(9)),
+                        Style::default().fg(TEXT),
+                    ),
                 ]));
                 if !v.duration.is_empty() {
                     lines.push(Line::from(vec![
@@ -278,11 +319,17 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
             ItemData::Channel(c) => {
                 lines.push(Line::from(vec![
                     label("Channel  "),
-                    Span::styled(truncate_str(&c.name, inner_w.saturating_sub(9)), Style::default().fg(TEXT)),
+                    Span::styled(
+                        truncate_str(&c.name, inner_w.saturating_sub(9)),
+                        Style::default().fg(TEXT),
+                    ),
                 ]));
                 lines.push(Line::from(vec![
                     label("URL      "),
-                    Span::styled(truncate_str(&c.url, inner_w.saturating_sub(9)), Style::default().fg(SUBTEXT)),
+                    Span::styled(
+                        truncate_str(&c.url, inner_w.saturating_sub(9)),
+                        Style::default().fg(SUBTEXT),
+                    ),
                 ]));
             }
             _ => {}

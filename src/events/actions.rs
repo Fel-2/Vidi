@@ -15,7 +15,11 @@ use crossterm::event::{self, KeyCode};
 
 use super::open_url_in_browser;
 
-pub(super) async fn handle_video_actions(app: &mut App, key: event::KeyEvent, mut va: VideoActionsScreen) {
+pub(super) async fn handle_video_actions(
+    app: &mut App,
+    key: event::KeyEvent,
+    mut va: VideoActionsScreen,
+) {
     let actions: &[&str] = VIDEO_ACTION_ITEMS;
 
     match key.code {
@@ -81,11 +85,7 @@ pub(super) async fn handle_quality_select(
     }
 }
 
-async fn video_action_execute(
-    app: &mut App,
-    video: &Video,
-    action: &str,
-) {
+async fn video_action_execute(app: &mut App, video: &Video, action: &str) {
     let quality = &app.config.youtube.video_quality.clone();
     let update_recent = app.config.youtube.update_recent;
     let no_of_recent = app.config.youtube.no_of_recent;
@@ -122,10 +122,7 @@ async fn video_action_execute(
             tokio::spawn(async move {
                 let args = player::ytdlp_download_args(&url, &dl_dir);
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-                let _ = tx.send(AppEvent::DownloadStarted(format!(
-                    "Downloading: {}",
-                    title
-                )));
+                let _ = tx.send(AppEvent::DownloadStarted(format!("Downloading: {}", title)));
                 match player::run_background(&args_str).await {
                     Ok(_) => {
                         let _ = tx.send(AppEvent::StatusMessage(format!(
@@ -183,7 +180,9 @@ async fn video_action_execute(
                 let _ = tx.send(AppEvent::DownloadStarted("Downloading all…".to_string()));
                 match player::run_background(&args_str).await {
                     Ok(_) => {
-                        let _ = tx.send(AppEvent::StatusMessage("Download all complete.".to_string()));
+                        let _ = tx.send(AppEvent::StatusMessage(
+                            "Download all complete.".to_string(),
+                        ));
                     }
                     Err(e) => {
                         let _ = tx.send(AppEvent::Error(format!("Download all failed: {}", e)));
@@ -211,10 +210,8 @@ async fn video_action_execute(
                         ));
                     }
                     Err(e) => {
-                        let _ = tx.send(AppEvent::Error(format!(
-                            "Download all audio failed: {}",
-                            e
-                        )));
+                        let _ =
+                            tx.send(AppEvent::Error(format!("Download all audio failed: {}", e)));
                     }
                 }
             });
@@ -466,7 +463,9 @@ pub(super) async fn handle_twitch_vod_actions(
                         )));
                         match player::run_background(&args_str).await {
                             Ok(_) => {
-                                let _ = tx.send(AppEvent::StatusMessage("VOD download complete.".to_string()));
+                                let _ = tx.send(AppEvent::StatusMessage(
+                                    "VOD download complete.".to_string(),
+                                ));
                             }
                             Err(e) => {
                                 let _ = tx.send(AppEvent::Error(format!(

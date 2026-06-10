@@ -17,7 +17,12 @@ use crossterm::event::{self, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseE
 
 pub fn handle_app_event(app: &mut App, event: AppEvent) {
     match event {
-        AppEvent::YoutubeResults { items, context, title, channel_load_more } => {
+        AppEvent::YoutubeResults {
+            items,
+            context,
+            title,
+            channel_load_more,
+        } => {
             app.loading = None;
             let mut ls = App::make_video_list(title, items, context);
             ls.channel_load_more = channel_load_more;
@@ -27,13 +32,18 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
 
         AppEvent::TwitchSearchResults(streams) => {
             app.loading = None;
-            let ls = App::make_stream_list("Twitch Search", streams, ListContext::TwitchStreamActions);
+            let ls =
+                App::make_stream_list("Twitch Search", streams, ListContext::TwitchStreamActions);
             app.push_screen(Screen::List(ls));
         }
 
         AppEvent::TwitchSubsResults(streams) => {
             app.loading = None;
-            let ls = App::make_stream_list("Live Subscriptions", streams, ListContext::TwitchStreamActions);
+            let ls = App::make_stream_list(
+                "Live Subscriptions",
+                streams,
+                ListContext::TwitchStreamActions,
+            );
             app.push_screen(Screen::List(ls));
         }
 
@@ -71,7 +81,11 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
                     }
                 })
                 .collect();
-            let ls = ListScreen::new("Custom Playlists", items, ListContext::CustomPlaylistActions);
+            let ls = ListScreen::new(
+                "Custom Playlists",
+                items,
+                ListContext::CustomPlaylistActions,
+            );
             app.push_screen(Screen::List(ls));
         }
 
@@ -116,7 +130,6 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             app.set_info(msg);
         }
 
-
         AppEvent::DownloadStarted(msg) => {
             app.set_info(msg);
         }
@@ -156,7 +169,11 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             }
         }
 
-        AppEvent::SubFeedMoreResults { new_items, existing_items, load_more } => {
+        AppEvent::SubFeedMoreResults {
+            new_items,
+            existing_items,
+            load_more,
+        } => {
             app.loading = None;
             // Merge: existing + new, dedup by id, sort by date desc.
             let mut all = existing_items;
@@ -186,7 +203,13 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             }
         }
 
-        AppEvent::ChannelTabMoreResults { new_items, existing_items, channel_load_more, title, context } => {
+        AppEvent::ChannelTabMoreResults {
+            new_items,
+            existing_items,
+            channel_load_more,
+            title,
+            context,
+        } => {
             app.loading = None;
             let mut all = existing_items;
             for v in new_items {
@@ -205,7 +228,8 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
         }
 
         AppEvent::PreviewReady { video_id } => {
-            app.preview_cache.insert(video_id.clone(), PreviewEntry { ready: true });
+            app.preview_cache
+                .insert(video_id.clone(), PreviewEntry { ready: true });
             // If this is the currently displayed video, force kitty refresh.
             if app.kitty_displayed.as_deref() == Some(&video_id) {
                 app.kitty_displayed = None;
@@ -258,9 +282,7 @@ fn apply_keybindings(key: event::KeyEvent, kb: &config::Keybindings) -> event::K
 
 pub async fn handle_key(app: &mut App, mut key: event::KeyEvent) {
     // Clear status messages on any keypress
-    if app.message.is_some()
-        && !matches!(app.message, Some((_, MessageKind::Error)))
-    {
+    if app.message.is_some() && !matches!(app.message, Some((_, MessageKind::Error))) {
         app.clear_message();
     }
 
@@ -273,10 +295,11 @@ pub async fn handle_key(app: &mut App, mut key: event::KeyEvent) {
     if key.code == KeyCode::Char('q')
         && !matches!(app.current_screen(), Screen::SearchInput(_))
         && !matches!(app.current_screen(), Screen::TwitchChat(_))
-        && app.screen_stack.len() <= 1 {
-            app.should_quit = true;
-            return;
-        }
+        && app.screen_stack.len() <= 1
+    {
+        app.should_quit = true;
+        return;
+    }
 
     // Ctrl-C always quits
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -373,8 +396,5 @@ pub(crate) fn open_url_in_browser(url: &str) {
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     let cmd = "xdg-open";
 
-    tokio::process::Command::new(cmd)
-        .arg(url)
-        .spawn()
-        .ok();
+    tokio::process::Command::new(cmd).arg(url).spawn().ok();
 }

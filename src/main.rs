@@ -108,7 +108,12 @@ fn check_dependencies(cfg: &config::Config) {
         ("streamlink", "Twitch live stream status and playback"),
     ];
     // Honour the configured player binaries instead of assuming mpv.
-    let player = cfg.youtube.player.split_whitespace().next().unwrap_or("mpv");
+    let player = cfg
+        .youtube
+        .player
+        .split_whitespace()
+        .next()
+        .unwrap_or("mpv");
     checks.push((player, "video playback (PLAYER in vidi.conf)"));
     let twitch_player = cfg.twitch.player.split_whitespace().next().unwrap_or("mpv");
     if twitch_player != player {
@@ -146,7 +151,7 @@ async fn run_app(
         let draw_start = std::time::Instant::now();
         terminal.draw(|f| ui::render(f, app))?;
         let draw_slow = draw_start.elapsed() > Duration::from_millis(150);
-        preview::kitty_update_display(app);  // overlay kitty image AFTER ratatui draws
+        preview::kitty_update_display(app); // overlay kitty image AFTER ratatui draws
 
         // Drain async events first (non-blocking).
         // Track whether loading just cleared so we can discard buffered keypresses.

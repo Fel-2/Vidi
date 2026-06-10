@@ -105,7 +105,10 @@ pub(super) fn render_youtube_menu(f: &mut Frame, area: Rect, selected: usize) {
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(" 📺  YouTube ", Style::default().fg(BLUE).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " 📺  YouTube ",
+            Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+        ))
         .border_style(Style::default().fg(BLUE));
 
     f.render_widget(List::new(items).block(block), area);
@@ -131,7 +134,10 @@ pub(super) fn render_twitch_menu(f: &mut Frame, area: Rect, selected: usize) {
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(" 🟣  Twitch ", Style::default().fg(MAUVE).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " 🟣  Twitch ",
+            Style::default().fg(MAUVE).add_modifier(Modifier::BOLD),
+        ))
         .border_style(Style::default().fg(MAUVE));
 
     f.render_widget(List::new(items).block(block), area);

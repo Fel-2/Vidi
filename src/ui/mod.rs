@@ -17,18 +17,18 @@ use crate::app::{App, MessageKind, Screen};
 use crate::models::ItemData;
 
 // ── Catppuccin Mocha palette ─────────────────────────────────────────────────
-pub(crate) const MAUVE:    Color = Color::Rgb(203, 166, 247);
+pub(crate) const MAUVE: Color = Color::Rgb(203, 166, 247);
 pub(crate) const LAVENDER: Color = Color::Rgb(180, 190, 254);
-pub(crate) const BLUE:     Color = Color::Rgb(137, 180, 250);
-pub(crate) const TEAL:     Color = Color::Rgb(148, 226, 213);
-pub(crate) const GREEN:    Color = Color::Rgb(166, 227, 161);
-pub(crate) const YELLOW:   Color = Color::Rgb(249, 226, 175);
-pub(crate) const PEACH:    Color = Color::Rgb(250, 179, 135);
-pub(crate) const RED:      Color = Color::Rgb(243, 139, 168);
-pub(crate) const TEXT:     Color = Color::Rgb(205, 214, 244);
-pub(crate) const SUBTEXT:  Color = Color::Rgb(147, 153, 178);
-pub(crate) const OVERLAY:  Color = Color::Rgb(108, 112, 134);
-pub(crate) const SURFACE:  Color = Color::Rgb(49,  50,  68 );
+pub(crate) const BLUE: Color = Color::Rgb(137, 180, 250);
+pub(crate) const TEAL: Color = Color::Rgb(148, 226, 213);
+pub(crate) const GREEN: Color = Color::Rgb(166, 227, 161);
+pub(crate) const YELLOW: Color = Color::Rgb(249, 226, 175);
+pub(crate) const PEACH: Color = Color::Rgb(250, 179, 135);
+pub(crate) const RED: Color = Color::Rgb(243, 139, 168);
+pub(crate) const TEXT: Color = Color::Rgb(205, 214, 244);
+pub(crate) const SUBTEXT: Color = Color::Rgb(147, 153, 178);
+pub(crate) const OVERLAY: Color = Color::Rgb(108, 112, 134);
+pub(crate) const SURFACE: Color = Color::Rgb(49, 50, 68);
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -70,8 +70,13 @@ pub const VIDEO_ACTION_ITEMS: &[&str] = &[
     "Back",
 ];
 
-pub(crate) const CHANNEL_TABS_DISPLAY: &[&str] =
-    &["📹  Videos", "📱  Shorts", "📡  Streams", "📋  Playlists", "🔍  Search"];
+pub(crate) const CHANNEL_TABS_DISPLAY: &[&str] = &[
+    "📹  Videos",
+    "📱  Shorts",
+    "📡  Streams",
+    "📋  Playlists",
+    "🔍  Search",
+];
 
 // ── Public helpers ────────────────────────────────────────────────────────────
 
@@ -136,9 +141,15 @@ fn render_titlebar(f: &mut Frame, app: &App, area: Rect) {
 
     let line = Line::from(vec![
         Span::raw(" ▌ "),
-        Span::styled("vidi", Style::default().fg(MAUVE).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "vidi",
+            Style::default().fg(MAUVE).add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" ▐  "),
-        Span::styled(format!("{} {}", emoji, name), Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            format!("{} {}", emoji, name),
+            Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" "),
     ]);
 
@@ -147,17 +158,17 @@ fn render_titlebar(f: &mut Frame, app: &App, area: Rect) {
 
 fn screen_emoji_and_title(screen: &Screen) -> (&'static str, &'static str) {
     match screen {
-        Screen::ModeSelect { .. }      => ("🎬", "Mode Select"),
-        Screen::YoutubeMenu { .. }     => ("📺", "YouTube"),
-        Screen::TwitchMenu { .. }      => ("🟣", "Twitch"),
-        Screen::List(_)                => ("📋", "List"),
-        Screen::VideoActions(_)        => ("🎬", "Video Actions"),
-        Screen::QualitySelect(_)       => ("🎚️", "Select Quality"),
-        Screen::ChannelActions(_)      => ("📋", "Channel"),
+        Screen::ModeSelect { .. } => ("🎬", "Mode Select"),
+        Screen::YoutubeMenu { .. } => ("📺", "YouTube"),
+        Screen::TwitchMenu { .. } => ("🟣", "Twitch"),
+        Screen::List(_) => ("📋", "List"),
+        Screen::VideoActions(_) => ("🎬", "Video Actions"),
+        Screen::QualitySelect(_) => ("🎚️", "Select Quality"),
+        Screen::ChannelActions(_) => ("📋", "Channel"),
         Screen::TwitchStreamActions(_) => ("🟣", "Stream Actions"),
-        Screen::TwitchVodActions(_)    => ("🎬", "VOD Actions"),
-        Screen::SearchInput(_)         => ("🔍", "Search"),
-        Screen::TwitchChat(_)          => ("💬", "Twitch Chat"),
+        Screen::TwitchVodActions(_) => ("🎬", "VOD Actions"),
+        Screen::SearchInput(_) => ("🔍", "Search"),
+        Screen::TwitchChat(_) => ("💬", "Twitch Chat"),
     }
 }
 
@@ -250,7 +261,10 @@ fn render_loading(f: &mut Frame, area: Rect, msg: &str) {
     let text = format!(" {} {} ", spinner, msg);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(" ⏳  Loading ", Style::default().fg(PEACH).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " ⏳  Loading ",
+            Style::default().fg(PEACH).add_modifier(Modifier::BOLD),
+        ))
         .border_style(Style::default().fg(PEACH));
     let para = Paragraph::new(Span::styled(text, Style::default().fg(PEACH))).block(block);
     f.render_widget(para, popup_area);
@@ -261,9 +275,9 @@ fn render_loading(f: &mut Frame, area: Rect, msg: &str) {
 fn render_statusbar(f: &mut Frame, app: &App, area: Rect) {
     let (msg_text, msg_style) = if let Some((ref msg, ref kind)) = app.message {
         let style = match kind {
-            MessageKind::Error   => Style::default().fg(RED).add_modifier(Modifier::BOLD),
+            MessageKind::Error => Style::default().fg(RED).add_modifier(Modifier::BOLD),
             MessageKind::Success => Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
-            MessageKind::Info    => Style::default().fg(TEAL),
+            MessageKind::Info => Style::default().fg(TEAL),
         };
         (msg.clone(), style)
     } else {
@@ -283,9 +297,7 @@ fn keybind_hints(screen: &Screen) -> String {
         Screen::ModeSelect { .. } | Screen::YoutubeMenu { .. } | Screen::TwitchMenu { .. } => {
             "↑↓ navigate   ↵ select   q quit".to_string()
         }
-        Screen::List(_) => {
-            "↑↓ navigate   type to filter   ↵ select   ⎋ back   q quit".to_string()
-        }
+        Screen::List(_) => "↑↓ navigate   type to filter   ↵ select   ⎋ back   q quit".to_string(),
         Screen::VideoActions(_)
         | Screen::QualitySelect(_)
         | Screen::ChannelActions(_)
@@ -308,10 +320,10 @@ pub(crate) fn item_style_for_data(data: &ItemData) -> Style {
             }
         }
         ItemData::YoutubeVideo(_) => Style::default().fg(TEXT),
-        ItemData::TwitchVod(_)    => Style::default().fg(SUBTEXT),
-        ItemData::Channel(_)      => Style::default().fg(SUBTEXT),
+        ItemData::TwitchVod(_) => Style::default().fg(SUBTEXT),
+        ItemData::Channel(_) => Style::default().fg(SUBTEXT),
         ItemData::CustomPlaylist(_) => Style::default().fg(SUBTEXT),
-        ItemData::Text(_)         => Style::default().fg(SUBTEXT),
+        ItemData::Text(_) => Style::default().fg(SUBTEXT),
     }
 }
 
@@ -347,22 +359,46 @@ pub fn relative_time(timestamp: i64) -> String {
         "just now".to_string()
     } else if diff < 3600 {
         let m = diff / 60;
-        if m == 1 { "1 minute ago".to_string() } else { format!("{} minutes ago", m) }
+        if m == 1 {
+            "1 minute ago".to_string()
+        } else {
+            format!("{} minutes ago", m)
+        }
     } else if diff < 86400 {
         let h = diff / 3600;
-        if h == 1 { "1 hour ago".to_string() } else { format!("{} hours ago", h) }
+        if h == 1 {
+            "1 hour ago".to_string()
+        } else {
+            format!("{} hours ago", h)
+        }
     } else if diff < 7 * 86400 {
         let d = diff / 86400;
-        if d == 1 { "1 day ago".to_string() } else { format!("{} days ago", d) }
+        if d == 1 {
+            "1 day ago".to_string()
+        } else {
+            format!("{} days ago", d)
+        }
     } else if diff < 30 * 86400 {
         let w = diff / (7 * 86400);
-        if w == 1 { "1 week ago".to_string() } else { format!("{} weeks ago", w) }
+        if w == 1 {
+            "1 week ago".to_string()
+        } else {
+            format!("{} weeks ago", w)
+        }
     } else if diff < 365 * 86400 {
         let mo = diff / (30 * 86400);
-        if mo == 1 { "1 month ago".to_string() } else { format!("{} months ago", mo) }
+        if mo == 1 {
+            "1 month ago".to_string()
+        } else {
+            format!("{} months ago", mo)
+        }
     } else {
         let y = diff / (365 * 86400);
-        if y == 1 { "1 year ago".to_string() } else { format!("{} years ago", y) }
+        if y == 1 {
+            "1 year ago".to_string()
+        } else {
+            format!("{} years ago", y)
+        }
     }
 }
 

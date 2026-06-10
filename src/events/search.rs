@@ -4,7 +4,11 @@ use crate::app::{App, AppEvent, ListContext, Screen, SearchContext, SearchInputS
 use crate::youtube;
 use crossterm::event::{self, KeyCode};
 
-pub(super) async fn handle_search_input(app: &mut App, key: event::KeyEvent, mut si: SearchInputScreen) {
+pub(super) async fn handle_search_input(
+    app: &mut App,
+    key: event::KeyEvent,
+    mut si: SearchInputScreen,
+) {
     match key.code {
         KeyCode::Esc => {
             app.pop_screen();
@@ -161,6 +165,5 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
                 }
             });
         }
-
     }
 }

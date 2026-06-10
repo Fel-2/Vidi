@@ -212,16 +212,13 @@ fn video_from_renderer(r: &Value, now: i64) -> Option<Video> {
         .get("publishedTimeText")
         .and_then(text_of)
         .and_then(|t| parse_relative_time(&t, now));
-    let duration_string = r
-        .get("lengthText")
-        .and_then(text_of)
-        .unwrap_or_default();
+    let duration_string = r.get("lengthText").and_then(text_of).unwrap_or_default();
     let view_count = r
         .get("viewCountText")
         .and_then(text_of)
         .and_then(|t| parse_view_count(&t));
-    let thumbnail = last_thumbnail(r)
-        .unwrap_or_else(|| format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", id));
+    let thumbnail =
+        last_thumbnail(r).unwrap_or_else(|| format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", id));
 
     Some(Video {
         url: format!("https://www.youtube.com/watch?v={}", id),
@@ -294,7 +291,11 @@ pub fn parse_short_view_count(text: &str) -> Option<u64> {
 fn videos_from_response(resp: &Value, now: i64) -> Vec<Video> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for key in ["videoRenderer", "gridVideoRenderer", "playlistVideoRenderer"] {
+    for key in [
+        "videoRenderer",
+        "gridVideoRenderer",
+        "playlistVideoRenderer",
+    ] {
         let mut renderers = Vec::new();
         collect_key(resp, key, &mut renderers);
         for r in renderers {
@@ -323,17 +324,15 @@ fn videos_from_response(resp: &Value, now: i64) -> Vec<Video> {
 
 /// Run `browse`/`search` plus as many continuation pages as needed to reach
 /// `limit` items (max 5 extra pages as a safety stop).
-async fn paginate(
-    endpoint: &str,
-    first_body: Value,
-    limit: usize,
-) -> Result<Vec<Video>> {
+async fn paginate(endpoint: &str, first_body: Value, limit: usize) -> Result<Vec<Video>> {
     let now = now_unix();
     let mut resp = post(endpoint, first_body).await?;
     let mut videos = videos_from_response(&resp, now);
     let mut pages = 0;
     while videos.len() < limit && pages < 5 {
-        let Some(token) = find_continuation(&resp) else { break };
+        let Some(token) = find_continuation(&resp) else {
+            break;
+        };
         resp = post(endpoint, json!({ "continuation": token })).await?;
         let more = videos_from_response(&resp, now);
         if more.is_empty() {
@@ -367,11 +366,7 @@ pub async fn search_videos(query: &str, sp: &str, limit: usize) -> Result<Vec<Vi
 
 pub async fn search_channels(query: &str, limit: usize) -> Result<Vec<Channel>> {
     // sp=EgIQAg== is the "Type: Channel" filter.
-    let resp = post(
-        "search",
-        json!({ "query": query, "params": "EgIQAg==" }),
-    )
-    .await?;
+    let resp = post("search", json!({ "query": query, "params": "EgIQAg==" })).await?;
     let mut renderers = Vec::new();
     collect_key(&resp, "channelRenderer", &mut renderers);
     let channels: Vec<Channel> = renderers
@@ -647,7 +642,10 @@ mod tests {
 
     #[test]
     fn relative_time_days() {
-        assert_eq!(parse_relative_time("3 days ago", 1_000_000), Some(1_000_000 - 3 * 86400));
+        assert_eq!(
+            parse_relative_time("3 days ago", 1_000_000),
+            Some(1_000_000 - 3 * 86400)
+        );
     }
 
     #[test]
@@ -660,7 +658,10 @@ mod tests {
 
     #[test]
     fn relative_time_singular() {
-        assert_eq!(parse_relative_time("1 hour ago", 10_000), Some(10_000 - 3600));
+        assert_eq!(
+            parse_relative_time("1 hour ago", 10_000),
+            Some(10_000 - 3600)
+        );
     }
 
     #[test]
@@ -778,8 +779,13 @@ mod tests {
     #[test]
     fn classify_search() {
         assert_eq!(
-            classify_url("https://www.youtube.com/results?search_query=hello+world&sp=EgIQAw%253D%253D"),
-            UrlKind::SearchResults { query: "hello world".into(), sp: "EgIQAw%253D%253D".into() }
+            classify_url(
+                "https://www.youtube.com/results?search_query=hello+world&sp=EgIQAw%253D%253D"
+            ),
+            UrlKind::SearchResults {
+                query: "hello world".into(),
+                sp: "EgIQAw%253D%253D".into()
+            }
         );
     }
 

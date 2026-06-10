@@ -14,10 +14,7 @@ const PASS: &str = "SCHMOOPIIE";
 
 /// Spawn a background task that connects to Twitch IRC and forwards
 /// chat messages through the given sender.
-pub fn spawn_chat_task(
-    channel: String,
-    tx: mpsc::UnboundedSender<AppEvent>,
-) {
+pub fn spawn_chat_task(channel: String, tx: mpsc::UnboundedSender<AppEvent>) {
     tokio::spawn(async move {
         if let Err(e) = run_chat(&channel, tx.clone()).await {
             let _ = tx.send(AppEvent::ChatError(format!("Chat error: {}", e)));
@@ -25,10 +22,7 @@ pub fn spawn_chat_task(
     });
 }
 
-async fn run_chat(
-    channel: &str,
-    tx: mpsc::UnboundedSender<AppEvent>,
-) -> Result<()> {
+async fn run_chat(channel: &str, tx: mpsc::UnboundedSender<AppEvent>) -> Result<()> {
     let addr = format!("{}:{}", IRC_SERVER, IRC_PORT);
     let stream = TcpStream::connect(&addr).await?;
     let (reader, mut writer) = stream.into_split();
@@ -99,7 +93,9 @@ fn parse_privmsg(line: &str) -> Option<IrcMsg> {
 
     // Extract message after ": " following channel name
     let rest = parts[1];
-    let text = rest.split_once(':').map(|x| x.1)
+    let text = rest
+        .split_once(':')
+        .map(|x| x.1)
         .unwrap_or("")
         .trim()
         .to_string();
@@ -109,7 +105,9 @@ fn parse_privmsg(line: &str) -> Option<IrcMsg> {
 
 /// Deterministic color (0-6) based on username hash.
 fn hash_color(username: &str) -> u8 {
-    let hash: u32 = username.bytes().fold(0u32, |acc, b| acc.wrapping_add(b as u32));
+    let hash: u32 = username
+        .bytes()
+        .fold(0u32, |acc, b| acc.wrapping_add(b as u32));
     (hash % 7) as u8
 }
 
@@ -177,11 +175,10 @@ mod tests {
     fn hash_color_different_users_vary() {
         // Not guaranteed to differ for any two users, but these should differ
         // given the simple additive hash.
-        let colors: std::collections::HashSet<u8> =
-            ["a", "b", "c", "d", "e", "f", "g"]
-                .iter()
-                .map(|u| hash_color(u))
-                .collect();
+        let colors: std::collections::HashSet<u8> = ["a", "b", "c", "d", "e", "f", "g"]
+            .iter()
+            .map(|u| hash_color(u))
+            .collect();
         assert!(colors.len() > 1);
     }
 }

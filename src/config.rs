@@ -89,14 +89,12 @@ pub struct Keybindings {
     pub page_down: Option<char>,
 }
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Config {
     pub youtube: YoutubeConfig,
     pub twitch: TwitchConfig,
     pub keys: Keybindings,
 }
-
 
 // ---------------------------------------------------------------------------
 // File paths helpers
@@ -133,7 +131,11 @@ pub fn youtube_custom_playlists_file() -> PathBuf {
 
 pub fn youtube_cache_dir() -> PathBuf {
     dirs::cache_dir()
-        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".cache"))
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".cache")
+        })
         .join("vidi")
 }
 
@@ -250,8 +252,14 @@ pub fn load_twitch_config() -> Result<TwitchConfig> {
             continue;
         }
         // Try KEY: VALUE first, then KEY=VALUE
-        if let Some((key, val)) = trimmed.split_once(':').map(|(k, v)| (k.trim(), v.trim()))
-            .or_else(|| trimmed.split_once('=').map(|(k, v)| (k.trim(), v.trim().trim_matches('"'))))
+        if let Some((key, val)) = trimmed
+            .split_once(':')
+            .map(|(k, v)| (k.trim(), v.trim()))
+            .or_else(|| {
+                trimmed
+                    .split_once('=')
+                    .map(|(k, v)| (k.trim(), v.trim().trim_matches('"')))
+            })
         {
             match key {
                 "PLAYER" => cfg.player = val.to_string(),

@@ -1,6 +1,8 @@
 //! Top-level menu screens: mode select, YouTube menu, Twitch menu.
 
-use crate::app::{App, AppEvent, ListContext, ListScreen, Screen, SearchContext, SearchInputScreen};
+use crate::app::{
+    App, AppEvent, ListContext, ListScreen, Screen, SearchContext, SearchInputScreen,
+};
 use crate::models::{ItemData, ListItem, SubFeedLoadMore};
 use crate::ui::{TWITCH_MENU_ITEMS, YOUTUBE_MENU_ITEMS};
 use crate::{config, player, twitch, youtube};
@@ -84,7 +86,9 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
         "Subscription Feed" => {
             let subs = youtube::load_subscriptions();
             if subs.is_empty() {
-                app.set_error("No YouTube subscriptions found. Add URLs to ~/.config/vidi/subscriptions");
+                app.set_error(
+                    "No YouTube subscriptions found. Add URLs to ~/.config/vidi/subscriptions",
+                );
                 return;
             }
 
@@ -195,13 +199,15 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
             }
         }
         "Miscellaneous" => {
-            let misc_items = ["Explore Channels",
+            let misc_items = [
+                "Explore Channels",
                 "Explore Playlists",
                 "Search History",
                 "Edit Search History",
                 "Edit Custom Playlists",
                 "Clear Search History",
-                "Back"];
+                "Back",
+            ];
             let list_items: Vec<ListItem> = misc_items
                 .iter()
                 .map(|s| ListItem {
@@ -252,7 +258,9 @@ async fn twitch_menu_action(app: &mut App, selected: usize) {
         "Live Subscriptions" => {
             let subs = twitch::load_twitch_subs();
             if subs.is_empty() {
-                app.set_error("No Twitch subscriptions found. Add usernames to ~/.config/vidi/twitch_subs");
+                app.set_error(
+                    "No Twitch subscriptions found. Add usernames to ~/.config/vidi/twitch_subs",
+                );
                 return;
             }
             let tx = app.tx.clone();

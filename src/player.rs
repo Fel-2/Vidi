@@ -140,13 +140,19 @@ mod tests {
     fn mpv_args_title_with_comma() {
         let args = mpv_watch_args("https://youtu.be/abc", "Monopoly, but SERIOUS.", "720");
         let opts_arg = args.iter().find(|a| a.contains("mpris-title")).unwrap();
-        assert_eq!(opts_arg, "--script-opts-append=mpris-title=Monopoly, but SERIOUS.");
+        assert_eq!(
+            opts_arg,
+            "--script-opts-append=mpris-title=Monopoly, but SERIOUS."
+        );
     }
 
     #[test]
     fn mpv_args_title_with_equals() {
         let args = mpv_watch_args("https://youtu.be/abc", "a=b", "1080");
-        let title_arg = args.iter().find(|a| a.contains("force-media-title")).unwrap();
+        let title_arg = args
+            .iter()
+            .find(|a| a.contains("force-media-title"))
+            .unwrap();
         assert_eq!(title_arg, "--force-media-title=a=b");
     }
 
@@ -168,7 +174,10 @@ mod tests {
     #[test]
     fn streamlink_args_order() {
         let args = streamlink_args("twitch.tv/user", "best", "mpv");
-        assert_eq!(args, vec!["streamlink", "--player", "mpv", "twitch.tv/user", "best"]);
+        assert_eq!(
+            args,
+            vec!["streamlink", "--player", "mpv", "twitch.tv/user", "best"]
+        );
     }
 
     #[test]

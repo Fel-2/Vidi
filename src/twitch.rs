@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-use crate::config::{twitch_subs_file};
+use crate::config::twitch_subs_file;
 use crate::models::{TwitchStream, TwitchVod};
 
 const USER_AGENT: &str =
@@ -85,8 +85,7 @@ pub async fn check_streamlink_status(user: &str) -> TwitchStream {
 
     match output {
         Ok(out) => {
-            let json: Value =
-                serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
+            let json: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
             let is_live = json
                 .get("streams")
                 .and_then(|s| s.as_object())
@@ -159,13 +158,7 @@ pub async fn fetch_vods(user: &str) -> Result<Vec<TwitchVod>> {
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(60),
         tokio::process::Command::new("yt-dlp")
-            .args([
-                &url,
-                "--flat-playlist",
-                "--playlist-end",
-                "20",
-                "-J",
-            ])
+            .args([&url, "--flat-playlist", "--playlist-end", "20", "-J"])
             .output(),
     )
     .await
@@ -176,8 +169,7 @@ pub async fn fetch_vods(user: &str) -> Result<Vec<TwitchVod>> {
         return Ok(vec![]);
     }
 
-    let json: Value =
-        serde_json::from_slice(&output.stdout).unwrap_or(Value::Null);
+    let json: Value = serde_json::from_slice(&output.stdout).unwrap_or(Value::Null);
     let entries = json
         .get("entries")
         .and_then(|v| v.as_array())
@@ -212,7 +204,10 @@ pub async fn fetch_vods(user: &str) -> Result<Vec<TwitchVod>> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let url = format!("https://www.twitch.tv/videos/{}", id.trim_start_matches('v'));
+            let url = format!(
+                "https://www.twitch.tv/videos/{}",
+                id.trim_start_matches('v')
+            );
             TwitchVod {
                 id,
                 title,
