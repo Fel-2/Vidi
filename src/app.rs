@@ -34,6 +34,12 @@ pub enum AppEvent {
         items: Vec<Video>,
         load_more: Option<SubFeedLoadMore>,
     },
+    /// Background refresh of the subscription feed finished — update the list
+    /// in place if the user is still looking at it.
+    SubFeedRefreshed {
+        items: Vec<Video>,
+        load_more: Option<SubFeedLoadMore>,
+    },
     /// Subscription feed "Load More" results — merges with the existing list.
     SubFeedMoreResults {
         new_items: Vec<Video>,

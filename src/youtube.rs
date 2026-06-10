@@ -374,8 +374,9 @@ struct FeedCache {
     videos: Vec<Video>,
 }
 
-/// Return cached feed if fresh enough, otherwise None.
-pub fn load_feed_cache() -> Option<Vec<Video>> {
+/// Return the cached feed regardless of age, plus whether it is still fresh.
+/// Stale caches are shown instantly while a background refresh runs.
+pub fn load_feed_cache_with_age() -> Option<(Vec<Video>, bool)> {
     let path = youtube_feed_cache_file();
     let content = std::fs::read_to_string(&path).ok()?;
     let cache: FeedCache = serde_json::from_str(&content).ok()?;
@@ -383,11 +384,8 @@ pub fn load_feed_cache() -> Option<Vec<Video>> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    if now.saturating_sub(cache.cached_at) < FEED_CACHE_MAX_AGE_SECS {
-        Some(cache.videos)
-    } else {
-        None
-    }
+    let fresh = now.saturating_sub(cache.cached_at) < FEED_CACHE_MAX_AGE_SECS;
+    Some((cache.videos, fresh))
 }
 
 /// Write feed results to cache.

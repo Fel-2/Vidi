@@ -132,6 +132,29 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             app.push_screen(Screen::List(ls));
         }
 
+        AppEvent::SubFeedRefreshed { items, load_more } => {
+            // Only swap the list if the user is still on the subscription feed.
+            if let Screen::List(ls) = app.current_screen() {
+                if ls.title == "Subscription Feed" {
+                    let selected = ls.selected;
+                    let scroll_offset = ls.scroll_offset;
+                    let filter = ls.filter.clone();
+                    let mut new_ls = App::make_video_list_with_load_more(
+                        "Subscription Feed",
+                        items,
+                        ListContext::YoutubeVideoActions,
+                        load_more,
+                    );
+                    new_ls.selected = selected.min(new_ls.total_rows().saturating_sub(1));
+                    new_ls.scroll_offset = scroll_offset.min(new_ls.selected);
+                    new_ls.filter = filter;
+                    preview::trigger_preview_for_selected(app, &new_ls);
+                    *app.current_screen_mut() = Screen::List(new_ls);
+                    app.set_info("Feed refreshed.");
+                }
+            }
+        }
+
         AppEvent::SubFeedMoreResults { new_items, existing_items, load_more } => {
             app.loading = None;
             // Merge: existing + new, dedup by id, sort by date desc.
@@ -383,23 +406,35 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
                 return;
             }
 
-            // Try cache first — show instantly if fresh
-            if let Some(cached) = youtube::load_feed_cache() {
-                let load_more = Some(SubFeedLoadMore {
-                    subs: subs.clone(),
+            let make_load_more = |subs: Vec<String>| {
+                Some(SubFeedLoadMore {
+                    subs,
                     next_playlist_end: 20,
                     label: "── Load More ──".to_string(),
-                });
+                })
+            };
+
+            // Show the cache instantly even when stale; a stale cache kicks
+            // off a background refresh that swaps the list in place.
+            let cached = youtube::load_feed_cache_with_age();
+            if let Some((items, _)) = cached.clone() {
                 let _ = app.tx.send(AppEvent::SubFeedResults {
-                    items: cached,
-                    load_more,
+                    items,
+                    load_more: make_load_more(subs.clone()),
                 });
+            }
+
+            let fresh = matches!(cached, Some((_, true)));
+            if fresh {
                 return;
+            }
+            let had_cache = cached.is_some();
+            if !had_cache {
+                app.loading = Some("Fetching subscription feed…".to_string());
             }
 
             let tx = app.tx.clone();
             let subs_clone = subs.clone();
-            app.loading = Some("Fetching subscription feed…".to_string());
             tokio::spawn(async move {
                 match youtube::fetch_subscription_feed(subs_clone.clone(), 5, 8, None).await {
                     Ok(items) => {
@@ -409,10 +444,17 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
                             next_playlist_end: 20,
                             label: "── Load More ──".to_string(),
                         });
-                        let _ = tx.send(AppEvent::SubFeedResults { items, load_more });
+                        if had_cache {
+                            let _ = tx.send(AppEvent::SubFeedRefreshed { items, load_more });
+                        } else {
+                            let _ = tx.send(AppEvent::SubFeedResults { items, load_more });
+                        }
                     }
                     Err(e) => {
-                        let _ = tx.send(AppEvent::Error(e.to_string()));
+                        // A failed background refresh shouldn't nuke the visible list.
+                        if !had_cache {
+                            let _ = tx.send(AppEvent::Error(e.to_string()));
+                        }
                     }
                 }
             });
