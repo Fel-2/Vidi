@@ -286,6 +286,23 @@ pub async fn handle_key(app: &mut App, mut key: event::KeyEvent) {
         app.clear_message();
     }
 
+    // Help overlay: any key closes it; `?` opens it anywhere but text entry.
+    if app.show_help {
+        app.show_help = false;
+        return;
+    }
+    // On list screens `?` only opens help while the filter is empty, so it
+    // can still be typed into an active filter.
+    let help_allowed = match app.current_screen() {
+        Screen::SearchInput(_) => false,
+        Screen::List(ls) => ls.filter.is_empty(),
+        _ => true,
+    };
+    if key.code == KeyCode::Char('?') && help_allowed {
+        app.show_help = true;
+        return;
+    }
+
     // Translate configured keybindings (except on text-entry screens).
     if !matches!(app.current_screen(), Screen::SearchInput(_)) {
         key = apply_keybindings(key, &app.config.keys);

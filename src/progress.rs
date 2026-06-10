@@ -189,26 +189,18 @@ pub async fn track(_socket: PathBuf, _video_id: String) {}
 mod tests {
     use super::*;
 
-    fn with_temp_cache<T>(f: impl FnOnce() -> T) -> T {
-        // Tests share the real cache dir; use unique IDs instead of isolation.
-        f()
-    }
-
+    // Single test: the progress file is shared on disk and parallel tests
+    // doing load-modify-write cycles would race each other.
     #[test]
-    fn update_and_resume_roundtrip() {
-        with_temp_cache(|| {
-            let id = format!("test-{}", std::process::id());
-            update_entry(&id, 120.0, 600.0);
-            assert_eq!(resume_position(&id), Some(120.0));
-            // Finished → entry removed.
-            update_entry(&id, 590.0, 600.0);
-            assert_eq!(resume_position(&id), None);
-        })
-    }
+    fn progress_file_roundtrip() {
+        let id = format!("test-{}", std::process::id());
+        update_entry(&id, 120.0, 600.0);
+        assert_eq!(resume_position(&id), Some(120.0));
+        // Finished → entry removed.
+        update_entry(&id, 590.0, 600.0);
+        assert_eq!(resume_position(&id), None);
 
-    #[test]
-    fn short_position_not_resumed() {
-        let id = format!("test-short-{}", std::process::id());
+        // Early positions are not worth resuming.
         update_entry(&id, 10.0, 600.0);
         assert_eq!(resume_position(&id), None);
         update_entry(&id, 595.0, 600.0); // cleanup

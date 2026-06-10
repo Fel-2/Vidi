@@ -127,6 +127,71 @@ pub fn render(f: &mut Frame, app: &mut App) {
     if let Some(ref msg) = app.loading.clone() {
         render_loading(f, size, msg);
     }
+
+    if app.show_help {
+        render_help(f, size, &app.config.keys);
+    }
+}
+
+// ── Help overlay ──────────────────────────────────────────────────────────────
+
+fn render_help(f: &mut Frame, area: Rect, keys: &crate::config::Keybindings) {
+    let override_of = |c: Option<char>| c.map(|c| format!(" / {}", c)).unwrap_or_default();
+    let rows: Vec<(String, &str)> = vec![
+        (format!("↑ / k{}", override_of(keys.up)), "move up"),
+        (format!("↓ / j{}", override_of(keys.down)), "move down"),
+        (format!("PgUp{}", override_of(keys.page_up)), "page up"),
+        (format!("PgDn{}", override_of(keys.page_down)), "page down"),
+        (format!("↵{}", override_of(keys.select)), "select"),
+        (format!("⎋{}", override_of(keys.back)), "back"),
+        (format!("q{}", override_of(keys.quit)), "back / quit"),
+        ("Ctrl-C".to_string(), "quit"),
+        ("type".to_string(), "filter current list"),
+        ("⌫".to_string(), "delete filter character"),
+        ("?".to_string(), "this help"),
+    ];
+    let extra = [
+        "",
+        "Lists: ❤ saved   ✓ watched",
+        "Search prefixes: :today :week :month :year :live …",
+        "Keys are configurable in vidi.conf (KEY_UP, KEY_DOWN, …).",
+    ];
+
+    let height = (rows.len() + extra.len() + 2) as u16;
+    let width = 60u16.min(area.width.saturating_sub(4));
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+    let popup = Rect::new(area.x + x, area.y + y, width, height.min(area.height));
+
+    f.render_widget(Clear, popup);
+
+    let mut lines: Vec<Line> = rows
+        .iter()
+        .map(|(key, what)| {
+            Line::from(vec![
+                Span::styled(
+                    format!(" {:<14}", key),
+                    Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(what.to_string(), Style::default().fg(TEXT)),
+            ])
+        })
+        .collect();
+    for line in extra {
+        lines.push(Line::from(Span::styled(
+            format!(" {}", line),
+            Style::default().fg(SUBTEXT),
+        )));
+    }
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Span::styled(
+            " ❓  Help — any key to close ",
+            Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
+        ))
+        .border_style(Style::default().fg(YELLOW));
+    f.render_widget(Paragraph::new(lines).block(block), popup);
 }
 
 // ── Title bar ─────────────────────────────────────────────────────────────────
@@ -295,9 +360,11 @@ fn render_statusbar(f: &mut Frame, app: &App, area: Rect) {
 fn keybind_hints(screen: &Screen) -> String {
     match screen {
         Screen::ModeSelect { .. } | Screen::YoutubeMenu { .. } | Screen::TwitchMenu { .. } => {
-            "↑↓ navigate   ↵ select   q quit".to_string()
+            "↑↓ navigate   ↵ select   ? help   q quit".to_string()
         }
-        Screen::List(_) => "↑↓ navigate   type to filter   ↵ select   ⎋ back   q quit".to_string(),
+        Screen::List(_) => {
+            "↑↓ navigate   type to filter   ↵ select   ⎋ back   ? help   q quit".to_string()
+        }
         Screen::VideoActions(_)
         | Screen::QualitySelect(_)
         | Screen::ChannelActions(_)

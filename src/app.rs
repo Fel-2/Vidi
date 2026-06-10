@@ -286,6 +286,8 @@ pub struct App {
     pub preview_thumb_area: Option<(u16, u16, u16, u16)>,
     /// Inline-image protocol supported by the host terminal.
     pub graphics: GraphicsProtocol,
+    /// Help overlay visible (toggled with `?`).
+    pub show_help: bool,
 }
 
 impl App {
@@ -305,6 +307,7 @@ impl App {
             kitty_displayed: None,
             preview_thumb_area: None,
             graphics: GraphicsProtocol::detect(),
+            show_help: false,
         }
     }
 
