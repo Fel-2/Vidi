@@ -223,11 +223,17 @@ pub fn timestamp_to_yyyymmdd(secs: i64) -> String {
 // ---------------------------------------------------------------------------
 
 pub async fn fetch_trending(limit: u32) -> Result<Vec<Video>> {
+    if let Ok(videos) = crate::innertube::trending(limit as usize).await {
+        return Ok(videos);
+    }
     let json = run_yt_dlp("https://www.youtube.com/gaming", limit).await?;
     Ok(parse_playlist_json(&json))
 }
 
 pub async fn fetch_search(query: &str, sp: &str, limit: u32) -> Result<Vec<Video>> {
+    if let Ok(videos) = crate::innertube::search_videos(query, sp, limit as usize).await {
+        return Ok(videos);
+    }
     let url = if sp.is_empty() {
         format!("ytsearch{}:{}", limit, query)
     } else {
@@ -258,6 +264,23 @@ pub fn urlencoding_simple(s: &str) -> String {
 }
 
 pub async fn fetch_playlist(playlist_url: &str, limit: u32) -> Result<Vec<Video>> {
+    // Fast path: serve channel tabs, playlists and search-result URLs straight
+    // from Innertube. Anything unrecognised (channel /playlists tab, channel
+    // /search) still goes through yt-dlp below.
+    use crate::innertube::{self, UrlKind};
+    let fast = match innertube::classify_url(playlist_url) {
+        UrlKind::ChannelTab(base, tab) => {
+            innertube::channel_tab_videos(&base, tab, limit as usize).await.ok()
+        }
+        UrlKind::Playlist(id) => innertube::playlist_videos(&id, limit as usize).await.ok(),
+        UrlKind::SearchResults { query, sp } => {
+            innertube::search_videos(&query, &sp, limit as usize).await.ok()
+        }
+        UrlKind::Unsupported => None,
+    };
+    if let Some(videos) = fast {
+        return Ok(videos);
+    }
     let json = run_yt_dlp(playlist_url, limit).await?;
     Ok(parse_playlist_json(&json))
 }
@@ -265,6 +288,9 @@ pub async fn fetch_playlist(playlist_url: &str, limit: u32) -> Result<Vec<Video>
 /// Search YouTube for channels matching `query`.
 /// Uses the YouTube search channel-type filter (sp=EgIQAg==).
 pub async fn search_channels(query: &str, limit: u32) -> Result<Vec<crate::models::Channel>> {
+    if let Ok(channels) = crate::innertube::search_channels(query, limit as usize).await {
+        return Ok(channels);
+    }
     let encoded = urlencoding_simple(query);
     // sp=EgIQAg%3D%3D is the URL-encoded form of the protobuf filter "Type: Channel"
     let url = format!(
@@ -316,15 +342,32 @@ pub async fn fetch_subscription_feed(
     let mut set: JoinSet<Vec<Video>> = JoinSet::new();
     let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrent));
 
+    // Channel names for filling in Innertube tab results, which omit the
+    // byline: inline names from the subscriptions file + the resolved cache.
+    let mut names: std::collections::HashMap<String, String> = load_channel_name_cache();
+    for (url, name) in load_subscriptions_with_names() {
+        if let Some(name) = name {
+            names.insert(url.trim_end_matches('/').to_string(), name);
+        }
+    }
+    let names = std::sync::Arc::new(names);
+
     for url in subs {
         let sem = sem.clone();
         let cutoff = cutoff_date.clone();
+        let names = names.clone();
         set.spawn(async move {
             let _permit = sem.acquire_owned().await.ok();
             let tab_url = format!("{}/videos", url.trim_end_matches('/'));
-            match run_yt_dlp(&tab_url, playlist_end).await {
-                Ok(json) => {
-                    let videos = parse_playlist_json(&json);
+            match fetch_playlist(&tab_url, playlist_end).await {
+                Ok(mut videos) => {
+                    if let Some(name) = names.get(url.trim_end_matches('/')) {
+                        for v in &mut videos {
+                            if v.channel.is_empty() {
+                                v.channel = name.clone();
+                            }
+                        }
+                    }
                     match cutoff {
                         Some(ref date) => videos
                             .into_iter()
@@ -678,6 +721,13 @@ pub fn load_subscriptions_with_names() -> Vec<(String, Option<String>)> {
 
 /// Extract a Channel from a subscription URL by fetching one video.
 pub async fn channel_from_url(url: &str) -> Channel {
+    // Fast path: one Innertube browse gives the channel title directly.
+    if let Ok((name, _avatar)) = crate::innertube::channel_meta(url).await {
+        return Channel {
+            name,
+            url: url.to_string(),
+        };
+    }
     // Try to get channel name from yt-dlp with a single video
     if let Ok(json) = run_yt_dlp(url, 1).await {
         let name = json
@@ -874,8 +924,13 @@ pub async fn channel_avatar_url(channel_url: &str) -> Option<String> {
         return Some(url.clone());
     }
 
-    let json = run_yt_dlp(channel_url, 1).await.ok()?;
-    let avatar = best_avatar_url(&json)?;
+    let avatar = match crate::innertube::channel_meta(channel_url).await {
+        Ok((_, Some(avatar))) => avatar,
+        _ => {
+            let json = run_yt_dlp(channel_url, 1).await.ok()?;
+            best_avatar_url(&json)?
+        }
+    };
 
     let mut merged = load_channel_avatar_cache();
     merged.insert(channel_url.to_string(), avatar.clone());

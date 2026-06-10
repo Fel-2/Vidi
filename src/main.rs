@@ -2,6 +2,7 @@ mod app;
 mod chat;
 mod config;
 mod events;
+mod innertube;
 mod models;
 mod player;
 mod preview;
