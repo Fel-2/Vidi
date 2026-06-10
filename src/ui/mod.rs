@@ -82,8 +82,12 @@ pub(crate) const CHANNEL_TABS_DISPLAY: &[&str] = &[
 
 // ── Public helpers ────────────────────────────────────────────────────────────
 
-pub fn channel_action_items(subscribed: bool) -> Vec<String> {
-    let mut items: Vec<String> = CHANNEL_TABS.iter().map(|s| s.to_string()).collect();
+pub fn channel_action_items(subscribed: bool, show_shorts: bool) -> Vec<String> {
+    let mut items: Vec<String> = CHANNEL_TABS
+        .iter()
+        .filter(|t| show_shorts || **t != "Shorts")
+        .map(|s| s.to_string())
+        .collect();
     if !subscribed {
         items.push("Subscribe".to_string());
     }
@@ -258,8 +262,12 @@ fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
         Screen::VideoActions(ref va) => actions::render_video_actions(f, area, va),
         Screen::QualitySelect(ref qs) => actions::render_quality_select(f, area, qs),
         Screen::ChannelActions(ref ca) => {
-            let mut labels: Vec<String> =
-                CHANNEL_TABS_DISPLAY.iter().map(|s| s.to_string()).collect();
+            // Keep in lockstep with channel_action_items (same Shorts gate).
+            let mut labels: Vec<String> = CHANNEL_TABS_DISPLAY
+                .iter()
+                .filter(|l| app.config.youtube.show_shorts || !l.ends_with("Shorts"))
+                .map(|s| s.to_string())
+                .collect();
             if !ca.subscribed {
                 labels.push("➕  Subscribe".to_string());
             }

@@ -200,6 +200,26 @@ fn channel_name_from(renderer: &Value) -> String {
     String::new()
 }
 
+/// Detect whether a `videoRenderer` is actually a Short: it either navigates
+/// to a reel watch endpoint or carries the SHORTS time-status overlay.
+fn renderer_is_short(r: &Value) -> bool {
+    let mut reels = Vec::new();
+    collect_key(r, "reelWatchEndpoint", &mut reels);
+    if !reels.is_empty() {
+        return true;
+    }
+    r.get("thumbnailOverlays")
+        .and_then(|o| o.as_array())
+        .map(|overlays| {
+            overlays.iter().any(|o| {
+                o.pointer("/thumbnailOverlayTimeStatusRenderer/style")
+                    .and_then(|s| s.as_str())
+                    == Some("SHORTS")
+            })
+        })
+        .unwrap_or(false)
+}
+
 /// Convert a `videoRenderer` / `playlistVideoRenderer` / `gridVideoRenderer`
 /// object into a Video. Returns None when there is no videoId.
 fn video_from_renderer(r: &Value, now: i64) -> Option<Video> {
@@ -240,6 +260,7 @@ fn video_from_renderer(r: &Value, now: i64) -> Option<Video> {
             .and_then(|s| s.get("snippetText"))
             .and_then(text_of),
         timestamp,
+        is_short: renderer_is_short(r),
         id,
     })
 }
@@ -267,6 +288,7 @@ fn video_from_shorts_lockup(r: &Value, _now: i64) -> Option<Video> {
         title,
         thumbnail: format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", id),
         view_count,
+        is_short: true,
         ..Default::default()
     })
     .map(|mut v| {
@@ -741,6 +763,43 @@ mod tests {
     #[test]
     fn video_renderer_no_id_is_none() {
         assert!(video_from_renderer(&json!({"title": {"simpleText": "x"}}), 0).is_none());
+    }
+
+    #[test]
+    fn video_renderer_not_short_by_default() {
+        let r = json!({"videoId": "v1", "title": {"simpleText": "x"}});
+        assert!(!video_from_renderer(&r, 0).unwrap().is_short);
+    }
+
+    #[test]
+    fn video_renderer_short_via_overlay() {
+        let r = json!({
+            "videoId": "v1",
+            "title": {"simpleText": "x"},
+            "thumbnailOverlays": [
+                {"thumbnailOverlayTimeStatusRenderer": {"style": "SHORTS"}}
+            ]
+        });
+        assert!(video_from_renderer(&r, 0).unwrap().is_short);
+    }
+
+    #[test]
+    fn video_renderer_short_via_reel_endpoint() {
+        let r = json!({
+            "videoId": "v1",
+            "title": {"simpleText": "x"},
+            "navigationEndpoint": {"reelWatchEndpoint": {"videoId": "v1"}}
+        });
+        assert!(video_from_renderer(&r, 0).unwrap().is_short);
+    }
+
+    #[test]
+    fn shorts_lockup_marked_short() {
+        let r = json!({
+            "onTap": {"innertubeCommand": {"reelWatchEndpoint": {"videoId": "s1"}}},
+            "overlayMetadata": {"primaryText": {"content": "A short"}}
+        });
+        assert!(video_from_shorts_lockup(&r, 0).unwrap().is_short);
     }
 
     // ── browse_id_from_url ──────────────────────────────────────────────

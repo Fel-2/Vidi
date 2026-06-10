@@ -24,6 +24,7 @@ A terminal UI for YouTube and Twitch, written in Rust.
 - ⏭ Play-next queue (`Tab` to queue from any list, YouTube → Queue to play)
 - ⏯ Watch progress: playback position is tracked via mpv IPC and resumed on the next watch
 - 🚫 SponsorBlock: mark segments as mpv chapters, cut them from downloads (`SPONSORBLOCK` in `vidi.conf`)
+- 🙈 Shorts hidden everywhere by default — lists, search, feed and the channel Shorts tab (`SHOW_SHORTS: true` re-enables)
 - 🎯 Custom playlists
 - 🕐 Recently watched
 - 🔎 Channel search via Miscellaneous → Explore Channels

@@ -186,6 +186,8 @@ fn json_to_video(j: &Value, fallback_channel: &str, fallback_channel_url: &str) 
         .or_else(|| j.get("modified_timestamp").and_then(|v| v.as_i64()))
         .or_else(|| j.get("epoch").and_then(|v| v.as_i64()));
 
+    let is_short = url.contains("/shorts/");
+
     Video {
         id,
         title,
@@ -200,6 +202,16 @@ fn json_to_video(j: &Value, fallback_channel: &str, fallback_channel_url: &str) 
         playlist_title,
         description,
         timestamp,
+        is_short,
+    }
+}
+
+/// Drop Shorts from a video list unless the user enabled SHOW_SHORTS.
+pub fn apply_shorts_filter(videos: Vec<Video>, show_shorts: bool) -> Vec<Video> {
+    if show_shorts {
+        videos
+    } else {
+        videos.into_iter().filter(|v| !v.is_short).collect()
     }
 }
 
@@ -1086,6 +1098,37 @@ mod tests {
         assert_eq!(videos[0].channel, "PlaylistOwner");
         // Second entry has its own channel
         assert_eq!(videos[1].channel, "OtherChannel");
+    }
+
+    #[test]
+    fn shorts_url_marks_is_short() {
+        let json = json!({
+            "id": "s1",
+            "title": "Short",
+            "url": "https://www.youtube.com/shorts/s1"
+        });
+        let videos = parse_playlist_json(&json);
+        assert!(videos[0].is_short);
+    }
+
+    #[test]
+    fn shorts_filter_drops_shorts_by_default() {
+        let videos = vec![
+            Video {
+                id: "a".into(),
+                is_short: false,
+                ..Default::default()
+            },
+            Video {
+                id: "b".into(),
+                is_short: true,
+                ..Default::default()
+            },
+        ];
+        let kept = apply_shorts_filter(videos.clone(), false);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].id, "a");
+        assert_eq!(apply_shorts_filter(videos, true).len(), 2);
     }
 
     #[test]

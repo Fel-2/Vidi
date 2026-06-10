@@ -20,6 +20,9 @@ pub struct Video {
     pub description: Option<String>,
     /// Unix timestamp from yt-dlp — more accurate than upload_date for sorting.
     pub timestamp: Option<i64>,
+    /// True when the entry is a YouTube Short (hidden unless SHOW_SHORTS).
+    #[serde(default)]
+    pub is_short: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

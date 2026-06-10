@@ -276,7 +276,7 @@ pub(super) async fn handle_channel_actions(
     key: event::KeyEvent,
     mut ca: ChannelActionsScreen,
 ) {
-    let items = channel_action_items(ca.subscribed);
+    let items = channel_action_items(ca.subscribed, app.config.youtube.show_shorts);
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
             if ca.selected > 0 {

@@ -16,6 +16,7 @@ use crate::{config, preview};
 use crossterm::event::{self, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 
 pub fn handle_app_event(app: &mut App, event: AppEvent) {
+    let show_shorts = app.config.youtube.show_shorts;
     match event {
         AppEvent::YoutubeResults {
             items,
@@ -24,6 +25,7 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             channel_load_more,
         } => {
             app.loading = None;
+            let items = crate::youtube::apply_shorts_filter(items, show_shorts);
             let mut ls = App::make_video_list(title, items, context);
             ls.channel_load_more = channel_load_more;
             preview::trigger_preview_for_selected(app, &ls);
@@ -136,6 +138,7 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
 
         AppEvent::SubFeedResults { items, load_more } => {
             app.loading = None;
+            let items = crate::youtube::apply_shorts_filter(items, show_shorts);
             let ls = App::make_video_list_with_load_more(
                 "Subscription Feed",
                 items,
@@ -147,6 +150,7 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
         }
 
         AppEvent::SubFeedRefreshed { items, load_more } => {
+            let items = crate::youtube::apply_shorts_filter(items, show_shorts);
             // Only swap the list if the user is still on the subscription feed.
             if let Screen::List(ls) = app.current_screen() {
                 if ls.title == "Subscription Feed" {
@@ -176,6 +180,7 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
         } => {
             app.loading = None;
             // Merge: existing + new, dedup by id, sort by date desc.
+            let new_items = crate::youtube::apply_shorts_filter(new_items, show_shorts);
             let mut all = existing_items;
             for v in new_items {
                 if !all.iter().any(|e: &crate::models::Video| e.id == v.id) {
@@ -211,6 +216,9 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             context,
         } => {
             app.loading = None;
+            // The user can only reach a Shorts tab when SHOW_SHORTS is on, so
+            // this filter never empties an explicitly opened Shorts list.
+            let new_items = crate::youtube::apply_shorts_filter(new_items, show_shorts);
             let mut all = existing_items;
             for v in new_items {
                 if !all.iter().any(|e: &crate::models::Video| e.id == v.id) {
