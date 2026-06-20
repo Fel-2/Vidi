@@ -31,9 +31,12 @@ A terminal UI for YouTube and Twitch, written in Rust.
 
 **Twitch**
 - 🔍 Live stream search
-- 💜 Subscription status (live/offline)
-- 🎬 VOD browsing
-- 💬 Live chat viewer
+- 💜 Subscription status in one fast batched API call (live/offline, viewers, uptime), with a `streamlink` fallback
+- 🔥 Top live streams (Twitch directory)
+- 🗂 Browse categories → live streams per game, with box-art previews
+- ➕ Follow / unfollow channels in-app (writes `twitch_subs`)
+- 🎬 VOD browsing via fast GQL (Past Broadcasts / Highlights / Uploads / Premieres), with view counts, durations and thumbnails — for subscribed channels or any stream you find; resumes where you left off; download with audio/quality options
+- 💬 Live chat viewer with real Twitch name colours and broadcaster/mod/vip/sub badges (auto-reconnects)
 
 **General**
 - Inline thumbnail previews (kitty / Ghostty graphics protocol, or iTerm2 / WezTerm)

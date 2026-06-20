@@ -61,6 +61,16 @@ pub struct TwitchStream {
     pub game: String,
     pub viewers: u64,
     pub is_live: bool,
+    /// Human-readable stream uptime (e.g. "3h 12m"), empty when offline/unknown.
+    pub uptime: String,
+}
+
+/// A Twitch directory category (game).
+#[derive(Debug, Clone, Default)]
+pub struct TwitchGame {
+    pub name: String,
+    pub viewers: u64,
+    pub box_art: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -71,6 +81,8 @@ pub struct TwitchVod {
     pub upload_date: String,
     pub thumbnail: String,
     pub url: String,
+    pub view_count: u64,
+    pub game: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +119,7 @@ pub enum ItemData {
     YoutubeVideo(Video),
     TwitchStream(TwitchStream),
     TwitchVod(TwitchVod),
+    TwitchGame(TwitchGame),
     Channel(Channel),
     CustomPlaylist(CustomPlaylist),
     Text(String),

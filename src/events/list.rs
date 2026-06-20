@@ -8,6 +8,23 @@ use crate::models::{ChannelTabLoadMore, ItemData, ListItem, SubFeedLoadMore, Vid
 use crate::{config, player, preview, twitch, youtube};
 use crossterm::event::{self, KeyCode};
 
+/// Build the VOD-type chooser (Archives/Highlights/…) for a channel login.
+/// Each row displays a friendly label but carries the GQL `BroadcastType`.
+pub(super) fn build_vod_type_list(login: &str) -> ListScreen {
+    let items: Vec<ListItem> = twitch::VOD_TYPES
+        .iter()
+        .map(|(label, gql_type)| ListItem {
+            display: label.to_string(),
+            data: ItemData::Text(gql_type.to_string()),
+        })
+        .collect();
+    ListScreen::new(
+        format!("VOD Type — {}", login),
+        items,
+        ListContext::SelectVodType(login.to_string()),
+    )
+}
+
 pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: ListScreen) {
     match key.code {
         KeyCode::Esc => {
@@ -259,13 +276,39 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
 
         ListContext::SelectChannelForVods => {
             if let ItemData::Text(user) = item.data {
+                app.push_screen(Screen::List(build_vod_type_list(&user)));
+            }
+        }
+
+        ListContext::SelectVodType(login) => {
+            if let ItemData::Text(vod_type) = item.data {
                 let tx = app.tx.clone();
-                let user_clone = user.clone();
-                app.loading = Some(format!("Fetching VODs for {}…", user));
+                let client_id = app.config.twitch.client_id.clone();
+                let login = login.clone();
+                app.loading = Some(format!("Fetching VODs for {}…", login));
                 tokio::spawn(async move {
-                    match twitch::fetch_vods(&user_clone).await {
+                    match twitch::fetch_vods(&client_id, &login, &vod_type).await {
                         Ok(vods) => {
                             let _ = tx.send(AppEvent::TwitchVodsResults(vods));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppEvent::Error(e.to_string()));
+                        }
+                    }
+                });
+            }
+        }
+
+        ListContext::SelectGameForStreams => {
+            if let ItemData::TwitchGame(game) = item.data {
+                let tx = app.tx.clone();
+                let client_id = app.config.twitch.client_id.clone();
+                let name = game.name.clone();
+                app.loading = Some(format!("Loading {}…", name));
+                tokio::spawn(async move {
+                    match twitch::fetch_game_streams(&client_id, &name, 40).await {
+                        Ok(streams) => {
+                            let _ = tx.send(AppEvent::TwitchTopStreams(streams));
                         }
                         Err(e) => {
                             let _ = tx.send(AppEvent::Error(e.to_string()));

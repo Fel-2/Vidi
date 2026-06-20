@@ -36,6 +36,8 @@ const YOUTUBE_MENU_DISPLAY: &[&str] = &[
 const TWITCH_MENU_DISPLAY: &[&str] = &[
     "🔍  Search Live",
     "💜  Live Subscriptions",
+    "🔥  Top Streams",
+    "🗂  Browse Categories",
     "🎬  Watch VODs",
     "✏️  Edit Subs",
 ];

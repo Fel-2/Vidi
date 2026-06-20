@@ -55,6 +55,19 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             app.push_screen(Screen::List(ls));
         }
 
+        AppEvent::TwitchTopStreams(streams) => {
+            app.loading = None;
+            let ls =
+                App::make_stream_list("Top Streams", streams, ListContext::TwitchStreamActions);
+            app.push_screen(Screen::List(ls));
+        }
+
+        AppEvent::TwitchGamesResults(games) => {
+            app.loading = None;
+            let ls = App::make_game_list("Categories", games, ListContext::SelectGameForStreams);
+            app.push_screen(Screen::List(ls));
+        }
+
         AppEvent::ChannelList(channels) => {
             app.loading = None;
             let items: Vec<ListItem> = channels
@@ -91,7 +104,12 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             app.push_screen(Screen::List(ls));
         }
 
-        AppEvent::ChatMessage { user, text, color } => {
+        AppEvent::ChatMessage {
+            user,
+            text,
+            color,
+            badges,
+        } => {
             if let Screen::TwitchChat(ref mut cs) = app.current_screen_mut() {
                 let ts = chrono_now();
                 if cs.messages.len() >= 1000 {
@@ -102,6 +120,7 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
                     user,
                     text,
                     color,
+                    badges,
                 });
             }
         }

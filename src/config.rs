@@ -52,8 +52,9 @@ impl Default for YoutubeConfig {
 // Twitch config
 // ---------------------------------------------------------------------------
 
-/// Default Twitch GQL client-id (the public Twitch Android app client-id).
-pub const DEFAULT_TWITCH_CLIENT_ID: &str = "kd1unb4k3ax4ap17e6be367k5likhw";
+/// Default Twitch GQL client-id (the public Twitch web client-id). The old
+/// Android app client-id is no longer accepted by gql.twitch.tv.
+pub const DEFAULT_TWITCH_CLIENT_ID: &str = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 
 #[derive(Debug, Clone)]
 pub struct TwitchConfig {

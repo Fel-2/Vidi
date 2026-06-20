@@ -8,9 +8,10 @@ use ratatui::{
     Frame,
 };
 
+use ratatui::style::Color;
+
 use super::{MAUVE, OVERLAY, SUBTEXT, TEXT};
 use crate::app::ChatScreen;
-use crate::chat::irc_color_to_ratatui;
 
 pub(super) fn render_chat(f: &mut Frame, area: Rect, cs: &ChatScreen) {
     let status_suffix = if cs.scroll_offset > 0 {
@@ -41,9 +42,15 @@ pub(super) fn render_chat(f: &mut Frame, area: Rect, cs: &ChatScreen) {
     let mut all_lines: Vec<Line> = Vec::new();
 
     for msg in &cs.messages {
-        let color = irc_color_to_ratatui(msg.color);
+        let (r, g, b) = msg.color;
+        let color = Color::Rgb(r, g, b);
         let ts_part = format!("[{}] ", msg.timestamp);
-        let user_part = format!("{}: ", msg.user);
+        let badge_part = if msg.badges.is_empty() {
+            String::new()
+        } else {
+            format!("{} ", msg.badges)
+        };
+        let user_part = format!("{}{}: ", badge_part, msg.user);
         let text_part = msg.text.clone();
 
         let full_text = format!("{}{}{}", ts_part, user_part, text_part);

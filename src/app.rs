@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::models::{
-    Channel, ChannelTabLoadMore, CustomPlaylist, ItemData, ListItem, SubFeedLoadMore, TwitchStream,
-    TwitchVod, Video,
+    Channel, ChannelTabLoadMore, CustomPlaylist, ItemData, ListItem, SubFeedLoadMore, TwitchGame,
+    TwitchStream, TwitchVod, Video,
 };
 use tokio::sync::mpsc;
 
@@ -20,12 +20,17 @@ pub enum AppEvent {
     TwitchSearchResults(Vec<TwitchStream>),
     TwitchSubsResults(Vec<TwitchStream>),
     TwitchVodsResults(Vec<TwitchVod>),
+    TwitchTopStreams(Vec<TwitchStream>),
+    TwitchGamesResults(Vec<TwitchGame>),
     ChannelList(Vec<Channel>),
     CustomPlaylistResults(Vec<CustomPlaylist>),
     ChatMessage {
         user: String,
         text: String,
-        color: u8,
+        /// Username display colour as RGB (from IRC tags, or a hashed fallback).
+        color: (u8, u8, u8),
+        /// Rendered badge glyphs (broadcaster/mod/vip/sub), empty if none.
+        badges: String,
     },
     ChatConnected,
     ChatError(String),
@@ -73,7 +78,11 @@ pub enum ListContext {
     TwitchStreamActions,
     TwitchVodActions,
     SelectChannelForVods,
+    /// Twitch VOD-type chooser for a given channel login (Archives/Highlights/…).
+    SelectVodType(String),
     SelectChannelToBrowse,
+    /// Twitch category list — selecting a game opens its live streams.
+    SelectGameForStreams,
     CustomPlaylistActions,
     SearchHistory,
     Miscellaneous,
@@ -171,7 +180,8 @@ pub struct ChatMessage {
     pub timestamp: String,
     pub user: String,
     pub text: String,
-    pub color: u8,
+    pub color: (u8, u8, u8),
+    pub badges: String,
 }
 
 #[derive(Debug, Clone)]
@@ -418,17 +428,41 @@ impl App {
             .into_iter()
             .map(|s| {
                 let status = if s.is_live { "LIVE" } else { "OFF " };
+                let meta = if s.is_live && !s.uptime.is_empty() {
+                    format!("{:>6} 👁 {:>7} up", s.viewers, s.uptime)
+                } else {
+                    format!("{:>6} viewers", s.viewers)
+                };
                 let display = format!(
-                    "{} {:>6} viewers | {:<20} | {:<20} | {}",
+                    "{} {:<16} | {:<18} | {:<20} | {}",
                     status,
-                    s.viewers,
-                    truncate(&s.login, 20),
+                    meta,
+                    truncate(&s.login, 18),
                     truncate(&s.game, 20),
                     truncate(&s.title, 50)
                 );
                 ListItem {
                     display,
                     data: ItemData::TwitchStream(s),
+                }
+            })
+            .collect();
+        ListScreen::new(title, items, context)
+    }
+
+    // ----- Convenience: build a ListScreen of twitch categories (games) -----
+    pub fn make_game_list(
+        title: impl Into<String>,
+        games: Vec<TwitchGame>,
+        context: ListContext,
+    ) -> ListScreen {
+        let items = games
+            .into_iter()
+            .map(|g| {
+                let display = format!("{:>9} 👁  | {}", g.viewers, truncate(&g.name, 60));
+                ListItem {
+                    display,
+                    data: ItemData::TwitchGame(g),
                 }
             })
             .collect();
@@ -443,11 +477,17 @@ impl App {
         let items = vods
             .into_iter()
             .map(|v| {
+                let views = if v.view_count > 0 {
+                    format!("{:>8} 👁", v.view_count)
+                } else {
+                    " ".repeat(10)
+                };
                 let display = format!(
-                    "{} | {} | {}",
+                    "{:<10} | {:>9} | {} | {}",
                     v.upload_date,
-                    truncate(&v.duration, 12),
-                    truncate(&v.title, 80)
+                    truncate(&v.duration, 9),
+                    views,
+                    truncate(&v.title, 70)
                 );
                 ListItem {
                     display,

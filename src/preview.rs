@@ -24,9 +24,27 @@ pub fn trigger_preview_for_selected(app: &mut App, ls: &ListScreen) {
             let cache_key = format!("twitchvod_{}", v.id);
             trigger_preview_raw(app, cache_key, v.thumbnail.clone());
         }
+        ItemData::TwitchGame(ref g) if !g.box_art.is_empty() => {
+            trigger_preview_raw(app, twitch_game_cache_key(&g.name), g.box_art.clone());
+        }
         ItemData::Channel(ref c) => trigger_channel_preview(app, &c.url),
         _ => {}
     }
+}
+
+/// Cache key (and on-disk PNG filename stem) for a Twitch category box-art preview.
+pub fn twitch_game_cache_key(name: &str) -> String {
+    let id: String = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("twitchgame_{}", id)
 }
 
 /// Cache key (and on-disk PNG filename stem) for a channel's avatar preview.
@@ -150,6 +168,9 @@ fn selected_video_id(app: &App) -> Option<String> {
                 ItemData::TwitchStream(s) if s.is_live => Some(format!("twitch_{}", s.login)),
                 ItemData::TwitchVod(v) if !v.thumbnail.is_empty() => {
                     Some(format!("twitchvod_{}", v.id))
+                }
+                ItemData::TwitchGame(g) if !g.box_art.is_empty() => {
+                    Some(twitch_game_cache_key(&g.name))
                 }
                 ItemData::Channel(c) => Some(channel_cache_key(&c.url)),
                 _ => None,

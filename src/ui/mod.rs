@@ -50,6 +50,8 @@ pub const YOUTUBE_MENU_ITEMS: &[&str] = &[
 pub const TWITCH_MENU_ITEMS: &[&str] = &[
     "Search Live",
     "Live Subscriptions",
+    "Top Streams",
+    "Browse Categories",
     "Watch VODs",
     "Edit Subs",
 ];
@@ -94,11 +96,17 @@ pub fn channel_action_items(subscribed: bool, show_shorts: bool) -> Vec<String> 
     items
 }
 
-pub fn twitch_stream_action_items() -> Vec<String> {
+pub fn twitch_stream_action_items(followed: bool) -> Vec<String> {
     vec![
         "Watch Stream".to_string(),
         "Open Chat".to_string(),
         "Watch + Chat".to_string(),
+        "Watch VODs".to_string(),
+        if followed {
+            "Unfollow".to_string()
+        } else {
+            "Follow".to_string()
+        },
         "Back".to_string(),
     ]
 }
@@ -282,10 +290,17 @@ fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
             );
         }
         Screen::TwitchStreamActions(ref sa) => {
+            let follow_label = if crate::twitch::is_followed(&sa.stream.login) {
+                "💔  Unfollow"
+            } else {
+                "➕  Follow"
+            };
             let labels: Vec<String> = vec![
                 "📺  Watch Stream".to_string(),
                 "💬  Open Chat".to_string(),
                 "🎬  Watch + Chat".to_string(),
+                "🎞  Watch VODs".to_string(),
+                follow_label.to_string(),
                 "←  Back".to_string(),
             ];
             let title = format!(
@@ -400,6 +415,7 @@ pub(crate) fn item_style_for_data(data: &ItemData) -> Style {
         }
         ItemData::YoutubeVideo(_) => Style::default().fg(TEXT),
         ItemData::TwitchVod(_) => Style::default().fg(SUBTEXT),
+        ItemData::TwitchGame(_) => Style::default().fg(MAUVE),
         ItemData::Channel(_) => Style::default().fg(SUBTEXT),
         ItemData::CustomPlaylist(_) => Style::default().fg(SUBTEXT),
         ItemData::Text(_) => Style::default().fg(SUBTEXT),

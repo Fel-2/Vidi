@@ -370,7 +370,7 @@ pub(super) async fn handle_twitch_stream_actions(
     key: event::KeyEvent,
     mut sa: TwitchStreamActionsScreen,
 ) {
-    let items = twitch_stream_action_items();
+    let items = twitch_stream_action_items(twitch::is_followed(&sa.stream.login));
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
             if sa.selected > 0 {
@@ -429,6 +429,24 @@ pub(super) async fn handle_twitch_stream_actions(
                     app.push_screen(Screen::TwitchChat(chat_screen));
                     chat::spawn_chat_task(channel, tx);
                 }
+                "Watch VODs" => {
+                    let login = sa.stream.login.clone();
+                    app.push_screen(Screen::List(super::list::build_vod_type_list(&login)));
+                }
+                "Follow" => {
+                    match twitch::follow(&sa.stream.login) {
+                        Ok(_) => app.set_success(format!("Followed {}", sa.stream.login)),
+                        Err(e) => app.set_error(format!("Follow failed: {}", e)),
+                    }
+                    *app.current_screen_mut() = Screen::TwitchStreamActions(sa);
+                }
+                "Unfollow" => {
+                    match twitch::unfollow(&sa.stream.login) {
+                        Ok(_) => app.set_success(format!("Unfollowed {}", sa.stream.login)),
+                        Err(e) => app.set_error(format!("Unfollow failed: {}", e)),
+                    }
+                    *app.current_screen_mut() = Screen::TwitchStreamActions(sa);
+                }
                 "Back" => {
                     app.pop_screen();
                 }
@@ -470,7 +488,17 @@ pub(super) async fn handle_twitch_vod_actions(
             match action.as_str() {
                 "Watch VOD" => {
                     let quality = app.config.youtube.video_quality.clone();
-                    let args = player::mpv_watch_args(&va.vod.url, &va.vod.title, &quality);
+                    let mut args = player::mpv_watch_args(&va.vod.url, &va.vod.title, &quality);
+                    // Resume + track playback position via mpv IPC, like YouTube.
+                    if app.config.youtube.watch_progress && !va.vod.id.is_empty() {
+                        let key = format!("twitchvod_{}", va.vod.id);
+                        if let Some(start) = crate::progress::resume_position(&key) {
+                            args.push(format!("--start={}", start as u64));
+                        }
+                        let socket = crate::progress::socket_path();
+                        args.extend(crate::progress::mpv_ipc_args(&socket));
+                        tokio::spawn(crate::progress::track(socket, key));
+                    }
                     let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                     let _ = player::launch_external(&args_str).await;
                 }

@@ -272,11 +272,42 @@ async fn twitch_menu_action(app: &mut App, selected: usize) {
                 return;
             }
             let tx = app.tx.clone();
+            let client_id = app.config.twitch.client_id.clone();
             app.loading = Some("Checking subscriptions…".to_string());
             tokio::spawn(async move {
-                match twitch::check_subs_parallel().await {
+                match twitch::fetch_subscriptions(&client_id).await {
                     Ok(streams) => {
                         let _ = tx.send(AppEvent::TwitchSubsResults(streams));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(e.to_string()));
+                    }
+                }
+            });
+        }
+        "Top Streams" => {
+            let tx = app.tx.clone();
+            let client_id = app.config.twitch.client_id.clone();
+            app.loading = Some("Loading top streams…".to_string());
+            tokio::spawn(async move {
+                match twitch::fetch_top_streams(&client_id, 40).await {
+                    Ok(streams) => {
+                        let _ = tx.send(AppEvent::TwitchTopStreams(streams));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(e.to_string()));
+                    }
+                }
+            });
+        }
+        "Browse Categories" => {
+            let tx = app.tx.clone();
+            let client_id = app.config.twitch.client_id.clone();
+            app.loading = Some("Loading categories…".to_string());
+            tokio::spawn(async move {
+                match twitch::fetch_top_games(&client_id, 40).await {
+                    Ok(games) => {
+                        let _ = tx.send(AppEvent::TwitchGamesResults(games));
                     }
                     Err(e) => {
                         let _ = tx.send(AppEvent::Error(e.to_string()));

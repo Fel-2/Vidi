@@ -135,6 +135,9 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
         ItemData::YoutubeVideo(v) => Some(v.id.clone()),
         ItemData::TwitchStream(s) if s.is_live => Some(format!("twitch_{}", s.login)),
         ItemData::TwitchVod(v) if !v.thumbnail.is_empty() => Some(format!("twitchvod_{}", v.id)),
+        ItemData::TwitchGame(g) if !g.box_art.is_empty() => {
+            Some(crate::preview::twitch_game_cache_key(&g.name))
+        }
         ItemData::Channel(c) => Some(crate::preview::channel_cache_key(&c.url)),
         _ => None,
     });
@@ -283,6 +286,12 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
                         Span::styled(format_views(s.viewers), Style::default().fg(TEXT)),
                     ]));
                 }
+                if !s.uptime.is_empty() {
+                    lines.push(Line::from(vec![
+                        label("Uptime   "),
+                        Span::styled(s.uptime.clone(), Style::default().fg(TEXT)),
+                    ]));
+                }
                 if !s.title.is_empty() {
                     lines.push(Line::from(""));
                     lines.push(Line::from(Span::styled(
@@ -315,6 +324,21 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
                         Span::styled(format_date(&v.upload_date), Style::default().fg(TEXT)),
                     ]));
                 }
+                if !v.game.is_empty() {
+                    lines.push(Line::from(vec![
+                        label("Game     "),
+                        Span::styled(
+                            truncate_str(&v.game, inner_w.saturating_sub(9)),
+                            Style::default().fg(TEXT),
+                        ),
+                    ]));
+                }
+                if v.view_count > 0 {
+                    lines.push(Line::from(vec![
+                        label("Views    "),
+                        Span::styled(format_views(v.view_count), Style::default().fg(TEXT)),
+                    ]));
+                }
             }
             ItemData::Channel(c) => {
                 lines.push(Line::from(vec![
@@ -330,6 +354,19 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
                         truncate_str(&c.url, inner_w.saturating_sub(9)),
                         Style::default().fg(SUBTEXT),
                     ),
+                ]));
+            }
+            ItemData::TwitchGame(g) => {
+                lines.push(Line::from(vec![
+                    label("Category "),
+                    Span::styled(
+                        truncate_str(&g.name, inner_w.saturating_sub(9)),
+                        Style::default().fg(TEXT),
+                    ),
+                ]));
+                lines.push(Line::from(vec![
+                    label("Viewers  "),
+                    Span::styled(format_views(g.viewers), Style::default().fg(TEXT)),
                 ]));
             }
             _ => {}
