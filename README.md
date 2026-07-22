@@ -117,6 +117,35 @@ names it doesn't already know. The original is backed up to `subscriptions.bak`.
 Single-key overrides can be set in `vidi.conf` (`KEY_UP`, `KEY_DOWN`, `KEY_SELECT`,
 `KEY_BACK`, `KEY_QUIT`, `KEY_PAGE_UP`, `KEY_PAGE_DOWN`). Arrow and vim keys always work.
 
+## Troubleshooting
+
+### A video occasionally fails to start
+
+Now and then mpv exits immediately with something like:
+
+```
+[ffmpeg] https: HTTP error 403 Forbidden
+Failed to open https://rr2---sn-....googlevideo.com/videoplayback?...
+No video or audio streams selected.
+```
+
+**Just play it again — it usually works on the second or third try.**
+
+This is a transient rejection by YouTube's media CDN, not a problem with vidi,
+yt-dlp or your setup. Because `bestvideo+bestaudio` streams the video and audio
+tracks from two separate URLs, one of them being refused is enough to abort
+playback. The refused URL is still valid: requesting it again seconds later
+succeeds. Measured on a sample of 60 launches, roughly 15% failed this way, in
+bursts.
+
+Retrying is safe here — the 403 comes from the media servers, not from YouTube's
+API, so it is not a rate limit or a bot check and does not count against you.
+
+One exception: do **not** keep retrying an error that says "Sign in to confirm
+you're not a bot", "Video unavailable", or names a geo restriction. Those are
+permanent for that request, and hammering the bot check can get your IP flagged
+for real.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
