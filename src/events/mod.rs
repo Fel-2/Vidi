@@ -429,6 +429,36 @@ fn chrono_now() -> String {
     format!("{:02}:{:02}:{:02}", h, m, s)
 }
 
+/// Copy `text` to the system clipboard via whichever helper is installed.
+pub(crate) fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    const CANDIDATES: &[(&str, &[&str])] = &[
+        ("wl-copy", &[]),
+        ("xclip", &["-selection", "clipboard"]),
+        ("xsel", &["-b", "-i"]),
+        ("pbcopy", &[]),
+        ("clip.exe", &[]),
+    ];
+
+    for (bin, args) in CANDIDATES {
+        let child = Command::new(bin)
+            .args(*args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        let Ok(mut child) = child else { continue };
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(text.as_bytes()).ok();
+        }
+        child.wait().ok();
+        return Ok(());
+    }
+    anyhow::bail!("no clipboard tool found (install wl-clipboard, xclip or xsel)")
+}
+
 pub(crate) fn open_url_in_browser(url: &str) {
     #[cfg(target_os = "linux")]
     let cmd = "xdg-open";

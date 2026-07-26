@@ -53,6 +53,8 @@ pub(super) fn render_list_screen(f: &mut Frame, area: Rect, ls: &ListScreen, app
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
         .split(outer[1]);
 
+    app.list_visible_rows = (body[0].height.saturating_sub(2) as usize).max(1);
+
     render_item_list(f, body[0], ls, app);
     render_preview_panel(f, body[1], ls, app);
 }

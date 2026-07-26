@@ -160,8 +160,13 @@ fn render_help(f: &mut Frame, area: Rect, keys: &crate::config::Keybindings) {
         (format!("⎋{}", override_of(keys.back)), "back"),
         (format!("q{}", override_of(keys.quit)), "back / quit"),
         ("Ctrl-C".to_string(), "quit"),
-        ("/".to_string(), "filter current list (↵ keep, ⎋ clear)"),
+        ("/".to_string(), "fuzzy filter list (↵ keep, ⎋ clear)"),
+        ("n / N".to_string(), "next / previous match"),
+        ("g / G".to_string(), "first / last row"),
+        ("Ctrl-U / Ctrl-D".to_string(), "half page up / down"),
         ("⌫".to_string(), "clear filter"),
+        ("p / d".to_string(), "play / download selected"),
+        ("y / s".to_string(), "copy URL / save toggle"),
         ("⇥".to_string(), "queue video (in Queue: remove)"),
         ("?".to_string(), "this help"),
     ];
@@ -173,7 +178,7 @@ fn render_help(f: &mut Frame, area: Rect, keys: &crate::config::Keybindings) {
     ];
 
     let height = (rows.len() + extra.len() + 2) as u16;
-    let width = 60u16.min(area.width.saturating_sub(4));
+    let width = 66u16.min(area.width.saturating_sub(4));
     let x = (area.width.saturating_sub(width)) / 2;
     let y = (area.height.saturating_sub(height)) / 2;
     let popup = Rect::new(area.x + x, area.y + y, width, height.min(area.height));
@@ -185,7 +190,7 @@ fn render_help(f: &mut Frame, area: Rect, keys: &crate::config::Keybindings) {
         .map(|(key, what)| {
             Line::from(vec![
                 Span::styled(
-                    format!(" {:<14}", key),
+                    format!(" {:<16}", key),
                     Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(what.to_string(), Style::default().fg(TEXT)),
@@ -389,10 +394,11 @@ fn keybind_hints(screen: &Screen) -> String {
             "↑↓ navigate   ↵ select   ? help   q quit".to_string()
         }
         Screen::List(ls) if ls.filter_active => {
-            "Type to filter   ↵ keep filter   ⎋ clear filter".to_string()
+            "Type to filter   ↵ keep   ⎋ clear   ^W word   ^U line".to_string()
         }
         Screen::List(_) => {
-            "↑↓ navigate   / filter   ↵ select   ⇥ queue   ⎋ back   ? help   q quit".to_string()
+            "↑↓ navigate   / filter   nN match   p play   d download   y copy   s save   ↵ select   ? help"
+                .to_string()
         }
         Screen::VideoActions(_)
         | Screen::QualitySelect(_)

@@ -43,7 +43,7 @@ A terminal UI for YouTube and Twitch, written in Rust.
 - Inline video playback via `mpv` / `yt-dlp`
 - Download support (video + audio-only, single + batch)
 - Save/unsave videos to a local watchlist
-- Filter bar on all list screens
+- Fuzzy filter bar on all list screens (`/`, vim-style)
 - Help overlay on `?`
 
 ## Dependencies
@@ -51,6 +51,7 @@ A terminal UI for YouTube and Twitch, written in Rust.
 - [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
 - [`mpv`](https://mpv.io/)
 - [`streamlink`](https://streamlink.github.io/) — Twitch streams
+- `wl-clipboard`, `xclip` or `xsel` — copying URLs with `y` (optional)
 - A graphics-capable terminal for thumbnail previews: [Kitty](https://sw.kovidgoyal.net/kitty/), [Ghostty](https://ghostty.org/), [iTerm2](https://iterm2.com/), or [WezTerm](https://wezterm.org/) (optional)
 
 ## Install
@@ -110,8 +111,14 @@ names it doesn't already know. The original is backed up to `subscriptions.bak`.
 | `q` | Quit |
 | `Tab` | Add video to queue (in Queue: remove) |
 | `?` | Help overlay |
-| `/` | Filter list (vim-style prompt: `Enter` keeps the filter, `Esc` clears it) |
+| `/` | Fuzzy filter list (vim-style prompt: `Enter` keeps the filter, `Esc` clears it) |
+| `Ctrl-W` / `Ctrl-U` | In the filter prompt: delete word / clear line |
+| `n` / `N` | Jump to next / previous match of the last filter text |
+| `g` / `G` | First / last row |
+| `Ctrl-U` / `Ctrl-D` | Half page up / down |
 | `Backspace` | Clear filter |
+| `p` / `d` | Play / download the selected item |
+| `y` / `s` | Copy URL to clipboard / toggle saved |
 | Mouse wheel | Scroll lists |
 
 Single-key overrides can be set in `vidi.conf` (`KEY_UP`, `KEY_DOWN`, `KEY_SELECT`,

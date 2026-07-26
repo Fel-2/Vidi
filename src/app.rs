@@ -107,6 +107,7 @@ pub struct ListScreen {
     pub items: Vec<ListItem>,
     pub filter: String,
     pub filter_active: bool,
+    pub last_query: String,
     pub selected: usize,
     pub context: ListContext,
     pub scroll_offset: usize,
@@ -123,6 +124,7 @@ impl ListScreen {
             items,
             filter: String::new(),
             filter_active: false,
+            last_query: String::new(),
             selected: 0,
             context,
             scroll_offset: 0,
@@ -144,10 +146,24 @@ impl ListScreen {
             let f = self.filter.to_lowercase();
             self.items
                 .iter()
-                .filter(|i| i.display.to_lowercase().contains(&f))
+                .filter(|i| fuzzy_match(&i.display, &f))
                 .collect()
         }
     }
+}
+
+/// Match `needle` (already lowercased) against `haystack` as a substring, or
+/// failing that as a subsequence, so "rst pod" still finds "Rust Podcast".
+pub fn fuzzy_match(haystack: &str, needle: &str) -> bool {
+    let hay = haystack.to_lowercase();
+    if hay.contains(needle) {
+        return true;
+    }
+    let mut chars = hay.chars();
+    needle
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .all(|c| chars.any(|h| h == c))
 }
 
 #[derive(Debug, Clone)]
@@ -304,6 +320,8 @@ pub struct App {
     pub show_help: bool,
     /// Play-next queue (Tab on a list enqueues, played via YouTube → Queue).
     pub queue: Vec<crate::models::Video>,
+    /// Rows visible in the list body, updated on every render.
+    pub list_visible_rows: usize,
 }
 
 impl App {
@@ -325,6 +343,7 @@ impl App {
             graphics: GraphicsProtocol::detect(),
             show_help: false,
             queue: Vec::new(),
+            list_visible_rows: 20,
         }
     }
 
@@ -571,6 +590,32 @@ mod tests {
         assert_eq!(filtered.len(), 2);
         assert_eq!(filtered[0].display, "Alpha Video");
         assert_eq!(filtered[1].display, "Alpha Stream");
+    }
+
+    #[test]
+    fn list_screen_filter_matches_subsequences() {
+        let items = vec![
+            ListItem {
+                display: "Rust Podcast Episode 3".to_string(),
+                data: ItemData::Text("a".to_string()),
+            },
+            ListItem {
+                display: "Cooking Show".to_string(),
+                data: ItemData::Text("b".to_string()),
+            },
+        ];
+        let mut ls = ListScreen::new("Test", items, ListContext::Miscellaneous);
+        ls.filter = "rst pod".to_string();
+        let filtered = ls.filtered_items();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].display, "Rust Podcast Episode 3");
+    }
+
+    #[test]
+    fn fuzzy_match_rejects_out_of_order_characters() {
+        assert!(fuzzy_match("Rust Podcast", "podcast"));
+        assert!(!fuzzy_match("Rust Podcast", "podcastx"));
+        assert!(!fuzzy_match("Rust Podcast", "tsur podcast"));
     }
 
     #[test]

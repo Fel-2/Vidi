@@ -25,36 +25,97 @@ pub(super) fn build_vod_type_list(login: &str) -> ListScreen {
     )
 }
 
+/// Keep `selected` inside the viewport of `visible` rows.
+fn clamp_scroll(ls: &mut ListScreen, visible: usize) {
+    let max_idx = ls.total_rows().saturating_sub(1);
+    ls.selected = ls.selected.min(max_idx);
+    if ls.selected < ls.scroll_offset {
+        ls.scroll_offset = ls.selected;
+    } else if ls.selected >= ls.scroll_offset + visible {
+        ls.scroll_offset = ls.selected + 1 - visible;
+    }
+    let max_offset = ls.total_rows().saturating_sub(visible);
+    ls.scroll_offset = ls.scroll_offset.min(max_offset);
+}
+
+/// Move the selection to the next row (`forward`) whose display text contains
+/// `ls.last_query`, wrapping around. Returns false when there is no match.
+fn jump_to_match(ls: &mut ListScreen, forward: bool) -> bool {
+    if ls.last_query.is_empty() {
+        return false;
+    }
+    let needle = ls.last_query.to_lowercase();
+    let rows: Vec<String> = ls
+        .filtered_items()
+        .iter()
+        .map(|i| i.display.clone())
+        .collect();
+    if rows.is_empty() {
+        return false;
+    }
+    let len = rows.len();
+    for step in 1..=len {
+        let idx = if forward {
+            (ls.selected + step) % len
+        } else {
+            (ls.selected + len * 2 - step) % len
+        };
+        if crate::app::fuzzy_match(&rows[idx], &needle) {
+            ls.selected = idx;
+            return true;
+        }
+    }
+    false
+}
+
+/// Filter prompt editing: characters, word/line deletion, submit and cancel.
+fn handle_filter_input(app: &mut App, key: event::KeyEvent, mut ls: ListScreen) {
+    let ctrl = key.modifiers.contains(event::KeyModifiers::CONTROL);
+    match key.code {
+        KeyCode::Esc => {
+            ls.filter.clear();
+            ls.filter_active = false;
+        }
+        KeyCode::Enter => {
+            ls.filter_active = false;
+        }
+        KeyCode::Backspace => {
+            ls.filter.pop();
+        }
+        KeyCode::Char('w') if ctrl => {
+            let trimmed = ls.filter.trim_end();
+            let cut = trimmed.rfind(' ').map(|i| i + 1).unwrap_or(0);
+            ls.filter.truncate(cut);
+        }
+        KeyCode::Char('u') if ctrl => {
+            ls.filter.clear();
+        }
+        KeyCode::Char(c) if !ctrl => {
+            ls.filter.push(c);
+        }
+        _ => {
+            *app.current_screen_mut() = Screen::List(ls);
+            return;
+        }
+    }
+    if !ls.filter.is_empty() {
+        ls.last_query = ls.filter.clone();
+    }
+    ls.selected = 0;
+    ls.scroll_offset = 0;
+    preview::trigger_preview_for_selected(app, &ls);
+    *app.current_screen_mut() = Screen::List(ls);
+}
+
 pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: ListScreen) {
     if ls.filter_active {
-        match key.code {
-            KeyCode::Esc => {
-                ls.filter.clear();
-                ls.filter_active = false;
-                ls.selected = 0;
-                ls.scroll_offset = 0;
-                preview::trigger_preview_for_selected(app, &ls);
-            }
-            KeyCode::Enter => {
-                ls.filter_active = false;
-            }
-            KeyCode::Backspace => {
-                ls.filter.pop();
-                ls.selected = 0;
-                ls.scroll_offset = 0;
-                preview::trigger_preview_for_selected(app, &ls);
-            }
-            KeyCode::Char(c) => {
-                ls.filter.push(c);
-                ls.selected = 0;
-                ls.scroll_offset = 0;
-                preview::trigger_preview_for_selected(app, &ls);
-            }
-            _ => {}
-        }
-        *app.current_screen_mut() = Screen::List(ls);
+        handle_filter_input(app, key, ls);
         return;
     }
+
+    let visible = app.list_visible_rows;
+    let ctrl = key.modifiers.contains(event::KeyModifiers::CONTROL);
+    let max_idx = ls.total_rows().saturating_sub(1);
 
     match key.code {
         KeyCode::Esc => {
@@ -64,41 +125,59 @@ pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: Lis
             app.pop_screen();
         }
         KeyCode::Up | KeyCode::Char('k') => {
-            if ls.selected > 0 {
-                ls.selected -= 1;
-                if ls.selected < ls.scroll_offset {
-                    ls.scroll_offset = ls.selected;
-                }
-                preview::trigger_preview_for_selected(app, &ls);
-            }
+            ls.selected = ls.selected.saturating_sub(1);
+            clamp_scroll(&mut ls, visible);
+            preview::trigger_preview_for_selected(app, &ls);
             *app.current_screen_mut() = Screen::List(ls);
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            let max_idx = ls.total_rows().saturating_sub(1);
-            if ls.selected < max_idx {
-                ls.selected += 1;
-                let visible = crossterm::terminal::size()
-                    .map(|(_, h)| (h as usize).saturating_sub(11))
-                    .unwrap_or(20);
-                if ls.selected >= ls.scroll_offset + visible {
-                    ls.scroll_offset = ls.selected.saturating_sub(visible - 1);
-                }
-                preview::trigger_preview_for_selected(app, &ls);
-            }
+            ls.selected = (ls.selected + 1).min(max_idx);
+            clamp_scroll(&mut ls, visible);
+            preview::trigger_preview_for_selected(app, &ls);
             *app.current_screen_mut() = Screen::List(ls);
         }
         KeyCode::PageUp => {
-            let page = 10;
-            ls.selected = ls.selected.saturating_sub(page);
-            ls.scroll_offset = ls.scroll_offset.saturating_sub(page);
+            ls.selected = ls.selected.saturating_sub(visible);
+            clamp_scroll(&mut ls, visible);
             preview::trigger_preview_for_selected(app, &ls);
             *app.current_screen_mut() = Screen::List(ls);
         }
         KeyCode::PageDown => {
-            let page = 10;
-            let max_idx = ls.total_rows().saturating_sub(1);
-            ls.selected = (ls.selected + page).min(max_idx);
-            ls.scroll_offset = ls.scroll_offset.saturating_add(page).min(max_idx);
+            ls.selected = (ls.selected + visible).min(max_idx);
+            clamp_scroll(&mut ls, visible);
+            preview::trigger_preview_for_selected(app, &ls);
+            *app.current_screen_mut() = Screen::List(ls);
+        }
+        KeyCode::Char('u') if ctrl => {
+            ls.selected = ls.selected.saturating_sub(visible / 2);
+            clamp_scroll(&mut ls, visible);
+            preview::trigger_preview_for_selected(app, &ls);
+            *app.current_screen_mut() = Screen::List(ls);
+        }
+        KeyCode::Char('d') if ctrl => {
+            ls.selected = (ls.selected + visible / 2).min(max_idx);
+            clamp_scroll(&mut ls, visible);
+            preview::trigger_preview_for_selected(app, &ls);
+            *app.current_screen_mut() = Screen::List(ls);
+        }
+        KeyCode::Home | KeyCode::Char('g') => {
+            ls.selected = 0;
+            clamp_scroll(&mut ls, visible);
+            preview::trigger_preview_for_selected(app, &ls);
+            *app.current_screen_mut() = Screen::List(ls);
+        }
+        KeyCode::End | KeyCode::Char('G') => {
+            ls.selected = max_idx;
+            clamp_scroll(&mut ls, visible);
+            preview::trigger_preview_for_selected(app, &ls);
+            *app.current_screen_mut() = Screen::List(ls);
+        }
+        KeyCode::Char('n') | KeyCode::Char('N') => {
+            let forward = key.code == KeyCode::Char('n');
+            if !jump_to_match(&mut ls, forward) && !ls.last_query.is_empty() {
+                app.set_info(format!("No match: {}", ls.last_query));
+            }
+            clamp_scroll(&mut ls, visible);
             preview::trigger_preview_for_selected(app, &ls);
             *app.current_screen_mut() = Screen::List(ls);
         }
@@ -112,6 +191,13 @@ pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: Lis
             ls.scroll_offset = 0;
             preview::trigger_preview_for_selected(app, &ls);
             *app.current_screen_mut() = Screen::List(ls);
+        }
+        KeyCode::Char('p') | KeyCode::Char('d') | KeyCode::Char('y') | KeyCode::Char('s') => {
+            let item = ls.filtered_items().get(ls.selected).map(|i| (*i).clone());
+            *app.current_screen_mut() = Screen::List(ls);
+            if let Some(item) = item {
+                item_shortcut(app, key.code, item).await;
+            }
         }
         KeyCode::Enter => {
             let filtered_len = ls.filtered_items().len();
@@ -154,6 +240,91 @@ pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: Lis
             }
             *app.current_screen_mut() = Screen::List(ls);
         }
+        _ => {}
+    }
+}
+
+/// Single-key actions on the selected row: play, download, yank URL, save.
+async fn item_shortcut(app: &mut App, code: KeyCode, item: ListItem) {
+    let copy = |app: &mut App, url: &str| match crate::events::copy_to_clipboard(url) {
+        Ok(()) => app.set_success(format!("Copied: {}", url)),
+        Err(e) => app.set_error(e.to_string()),
+    };
+
+    match item.data {
+        ItemData::YoutubeVideo(video) => match code {
+            KeyCode::Char('p') => {
+                super::actions::video_action_execute(app, &video, "Watch").await;
+            }
+            KeyCode::Char('d') => {
+                super::actions::video_action_execute(app, &video, "Download").await;
+            }
+            KeyCode::Char('y') => copy(app, &video.url),
+            KeyCode::Char('s') => {
+                let action = if app.saved_ids.contains(&video.id) {
+                    "UnSave"
+                } else {
+                    "Save"
+                };
+                super::actions::video_action_execute(app, &video, action).await;
+            }
+            _ => {}
+        },
+
+        ItemData::TwitchStream(stream) => {
+            let url = twitch::twitch_stream_url(&stream.login);
+            match code {
+                KeyCode::Char('p') => {
+                    let args = player::streamlink_args(
+                        &url,
+                        &app.config.twitch.quality,
+                        &app.config.twitch.player,
+                    );
+                    let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+                    let _ = player::launch_external(&args_str).await;
+                }
+                KeyCode::Char('y') => copy(app, &url),
+                _ => {}
+            }
+        }
+
+        ItemData::TwitchVod(vod) => match code {
+            KeyCode::Char('p') => {
+                let quality = app.config.youtube.video_quality.clone();
+                let args = player::mpv_watch_args(&vod.url, &vod.title, &quality);
+                let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+                let _ = player::launch_external(&args_str).await;
+            }
+            KeyCode::Char('d') => {
+                let url = vod.url.clone();
+                let dl_dir = app.config.youtube.download_directory.clone();
+                let title = vod.title.clone();
+                let tx = app.tx.clone();
+                tokio::spawn(async move {
+                    let args = player::ytdlp_download_args(&url, &dl_dir);
+                    let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+                    let _ = tx.send(AppEvent::DownloadStarted(format!(
+                        "Downloading VOD: {}",
+                        title
+                    )));
+                    match player::run_background(&args_str).await {
+                        Ok(_) => {
+                            let _ = tx.send(AppEvent::StatusMessage(
+                                "VOD download complete.".to_string(),
+                            ));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppEvent::Error(format!("VOD download failed: {}", e)));
+                        }
+                    }
+                });
+            }
+            KeyCode::Char('y') => copy(app, &vod.url),
+            _ => {}
+        },
+
+        ItemData::Channel(channel) if code == KeyCode::Char('y') => copy(app, &channel.url),
+
         _ => {}
     }
 }
@@ -563,5 +734,92 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn screen(n: usize) -> ListScreen {
+        let items = (0..n)
+            .map(|i| ListItem {
+                display: format!("item {}", i),
+                data: ItemData::Text(i.to_string()),
+            })
+            .collect();
+        ListScreen::new("t", items, ListContext::Miscellaneous)
+    }
+
+    #[test]
+    fn clamp_scroll_follows_selection_down() {
+        let mut ls = screen(100);
+        ls.selected = 25;
+        clamp_scroll(&mut ls, 10);
+        assert_eq!(ls.scroll_offset, 16);
+    }
+
+    #[test]
+    fn clamp_scroll_follows_selection_up() {
+        let mut ls = screen(100);
+        ls.scroll_offset = 40;
+        ls.selected = 12;
+        clamp_scroll(&mut ls, 10);
+        assert_eq!(ls.scroll_offset, 12);
+    }
+
+    #[test]
+    fn clamp_scroll_never_scrolls_past_the_last_page() {
+        let mut ls = screen(30);
+        ls.selected = 29;
+        ls.scroll_offset = 28;
+        clamp_scroll(&mut ls, 10);
+        assert_eq!(ls.scroll_offset, 20);
+    }
+
+    #[test]
+    fn clamp_scroll_short_list_stays_at_top() {
+        let mut ls = screen(3);
+        ls.selected = 2;
+        clamp_scroll(&mut ls, 10);
+        assert_eq!(ls.scroll_offset, 0);
+    }
+
+    #[test]
+    fn clamp_scroll_clamps_selection_to_last_row() {
+        let mut ls = screen(5);
+        ls.selected = 99;
+        clamp_scroll(&mut ls, 10);
+        assert_eq!(ls.selected, 4);
+    }
+
+    #[test]
+    fn jump_to_match_moves_forward_and_wraps() {
+        let mut ls = screen(20);
+        ls.last_query = "item 1".to_string();
+        ls.selected = 0;
+        assert!(jump_to_match(&mut ls, true));
+        assert_eq!(ls.selected, 1);
+        ls.selected = 19;
+        assert!(jump_to_match(&mut ls, true));
+        assert_eq!(ls.selected, 1);
+    }
+
+    #[test]
+    fn jump_to_match_moves_backward() {
+        let mut ls = screen(20);
+        ls.last_query = "ITEM 3".to_string();
+        ls.selected = 10;
+        assert!(jump_to_match(&mut ls, false));
+        assert_eq!(ls.selected, 3);
+    }
+
+    #[test]
+    fn jump_to_match_without_query_or_match_is_a_noop() {
+        let mut ls = screen(5);
+        assert!(!jump_to_match(&mut ls, true));
+        ls.last_query = "nothing".to_string();
+        assert!(!jump_to_match(&mut ls, true));
+        assert_eq!(ls.selected, 0);
     }
 }

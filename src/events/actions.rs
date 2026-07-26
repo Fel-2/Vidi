@@ -100,7 +100,7 @@ pub(super) async fn handle_quality_select(
     }
 }
 
-async fn video_action_execute(app: &mut App, video: &Video, action: &str) {
+pub(super) async fn video_action_execute(app: &mut App, video: &Video, action: &str) {
     let quality = &app.config.youtube.video_quality.clone();
     let download_dir = app.config.youtube.download_directory.clone();
     let sponsorblock = app.config.youtube.sponsorblock.clone();
