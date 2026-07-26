@@ -26,6 +26,36 @@ pub(super) fn build_vod_type_list(login: &str) -> ListScreen {
 }
 
 pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: ListScreen) {
+    if ls.filter_active {
+        match key.code {
+            KeyCode::Esc => {
+                ls.filter.clear();
+                ls.filter_active = false;
+                ls.selected = 0;
+                ls.scroll_offset = 0;
+                preview::trigger_preview_for_selected(app, &ls);
+            }
+            KeyCode::Enter => {
+                ls.filter_active = false;
+            }
+            KeyCode::Backspace => {
+                ls.filter.pop();
+                ls.selected = 0;
+                ls.scroll_offset = 0;
+                preview::trigger_preview_for_selected(app, &ls);
+            }
+            KeyCode::Char(c) => {
+                ls.filter.push(c);
+                ls.selected = 0;
+                ls.scroll_offset = 0;
+                preview::trigger_preview_for_selected(app, &ls);
+            }
+            _ => {}
+        }
+        *app.current_screen_mut() = Screen::List(ls);
+        return;
+    }
+
     match key.code {
         KeyCode::Esc => {
             app.pop_screen();
@@ -72,8 +102,12 @@ pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: Lis
             preview::trigger_preview_for_selected(app, &ls);
             *app.current_screen_mut() = Screen::List(ls);
         }
+        KeyCode::Char('/') => {
+            ls.filter_active = true;
+            *app.current_screen_mut() = Screen::List(ls);
+        }
         KeyCode::Backspace => {
-            ls.filter.pop();
+            ls.filter.clear();
             ls.selected = 0;
             ls.scroll_offset = 0;
             preview::trigger_preview_for_selected(app, &ls);
@@ -118,13 +152,6 @@ pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: Lis
                     app.set_success(format!("Queued ({}): {}", app.queue.len(), v.title));
                 }
             }
-            *app.current_screen_mut() = Screen::List(ls);
-        }
-        KeyCode::Char(c) => {
-            ls.filter.push(c);
-            ls.selected = 0;
-            ls.scroll_offset = 0;
-            preview::trigger_preview_for_selected(app, &ls);
             *app.current_screen_mut() = Screen::List(ls);
         }
         _ => {}

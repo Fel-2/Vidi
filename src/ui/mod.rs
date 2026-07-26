@@ -160,8 +160,8 @@ fn render_help(f: &mut Frame, area: Rect, keys: &crate::config::Keybindings) {
         (format!("⎋{}", override_of(keys.back)), "back"),
         (format!("q{}", override_of(keys.quit)), "back / quit"),
         ("Ctrl-C".to_string(), "quit"),
-        ("type".to_string(), "filter current list"),
-        ("⌫".to_string(), "delete filter character"),
+        ("/".to_string(), "filter current list (↵ keep, ⎋ clear)"),
+        ("⌫".to_string(), "clear filter"),
         ("⇥".to_string(), "queue video (in Queue: remove)"),
         ("?".to_string(), "this help"),
     ];
@@ -388,9 +388,11 @@ fn keybind_hints(screen: &Screen) -> String {
         Screen::ModeSelect { .. } | Screen::YoutubeMenu { .. } | Screen::TwitchMenu { .. } => {
             "↑↓ navigate   ↵ select   ? help   q quit".to_string()
         }
+        Screen::List(ls) if ls.filter_active => {
+            "Type to filter   ↵ keep filter   ⎋ clear filter".to_string()
+        }
         Screen::List(_) => {
-            "↑↓ navigate   type to filter   ↵ select   ⇥ queue   ⎋ back   ? help   q quit"
-                .to_string()
+            "↑↓ navigate   / filter   ↵ select   ⇥ queue   ⎋ back   ? help   q quit".to_string()
         }
         Screen::VideoActions(_)
         | Screen::QualitySelect(_)

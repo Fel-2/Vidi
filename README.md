@@ -110,8 +110,8 @@ names it doesn't already know. The original is backed up to `subscriptions.bak`.
 | `q` | Quit |
 | `Tab` | Add video to queue (in Queue: remove) |
 | `?` | Help overlay |
-| Type anything | Filter list |
-| `Backspace` | Delete filter character |
+| `/` | Filter list (vim-style prompt: `Enter` keeps the filter, `Esc` clears it) |
+| `Backspace` | Clear filter |
 | Mouse wheel | Scroll lists |
 
 Single-key overrides can be set in `vidi.conf` (`KEY_UP`, `KEY_DOWN`, `KEY_SELECT`,

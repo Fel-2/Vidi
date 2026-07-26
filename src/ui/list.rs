@@ -22,20 +22,25 @@ pub(super) fn render_list_screen(f: &mut Frame, area: Rect, ls: &ListScreen, app
         .split(area);
 
     // Filter bar
+    let filter_color = if ls.filter_active { YELLOW } else { OVERLAY };
     let filter_block = Block::default()
         .borders(Borders::ALL)
         .title(Span::styled(
             " 🔍  Filter ",
-            Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(filter_color)
+                .add_modifier(Modifier::BOLD),
         ))
-        .border_style(Style::default().fg(YELLOW));
-    let filter_text = if ls.filter.is_empty() {
+        .border_style(Style::default().fg(filter_color));
+    let filter_text = if ls.filter_active {
+        Span::styled(format!("/{}_", ls.filter), Style::default().fg(TEXT))
+    } else if ls.filter.is_empty() {
         Span::styled(
-            "type to filter…",
+            "press / to filter…",
             Style::default().fg(OVERLAY).add_modifier(Modifier::ITALIC),
         )
     } else {
-        Span::styled(format!("{}_", ls.filter), Style::default().fg(TEXT))
+        Span::styled(format!("/{}", ls.filter), Style::default().fg(TEXT))
     };
     f.render_widget(
         Paragraph::new(Line::from(filter_text)).block(filter_block),

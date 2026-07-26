@@ -318,26 +318,25 @@ pub async fn handle_key(app: &mut App, mut key: event::KeyEvent) {
         app.show_help = false;
         return;
     }
-    // On list screens `?` only opens help while the filter is empty, so it
-    // can still be typed into an active filter.
-    let help_allowed = match app.current_screen() {
-        Screen::SearchInput(_) => false,
-        Screen::List(ls) => ls.filter.is_empty(),
-        _ => true,
+    // Text entry: search prompt, or a list with its `/` filter prompt open.
+    let text_entry = match app.current_screen() {
+        Screen::SearchInput(_) => true,
+        Screen::List(ls) => ls.filter_active,
+        _ => false,
     };
-    if key.code == KeyCode::Char('?') && help_allowed {
+    if key.code == KeyCode::Char('?') && !text_entry {
         app.show_help = true;
         return;
     }
 
     // Translate configured keybindings (except on text-entry screens).
-    if !matches!(app.current_screen(), Screen::SearchInput(_)) {
+    if !text_entry {
         key = apply_keybindings(key, &app.config.keys);
     }
 
     // Global quit
     if key.code == KeyCode::Char('q')
-        && !matches!(app.current_screen(), Screen::SearchInput(_))
+        && !text_entry
         && !matches!(app.current_screen(), Screen::TwitchChat(_))
         && app.screen_stack.len() <= 1
     {
