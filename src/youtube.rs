@@ -69,7 +69,6 @@ pub fn parse_playlist_json(json: &Value) -> Vec<Video> {
     let entries = match json.get("entries") {
         Some(Value::Array(arr)) => arr,
         _ => {
-            // Single video
             if json.get("id").and_then(|v| v.as_str()).is_some() {
                 let v = json_to_video(json, &root_channel, &root_channel_url);
                 return if v.id.is_empty() { vec![] } else { vec![v] };
@@ -156,7 +155,6 @@ fn json_to_video(j: &Value, fallback_channel: &str, fallback_channel_url: &str) 
                 .and_then(|arr| arr.last())
                 .and_then(|last| last.get("url"))
                 .and_then(|u| u.as_str())
-                // Strip query-string noise from cached thumbnail URLs
                 .map(|u| u.split('?').next().unwrap_or(u).to_string())
         })
         .unwrap_or_else(|| {
@@ -523,7 +521,6 @@ pub fn save_recent(recent: &RecentVideos, max: usize) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    // Keep last `max` unique by id
     let mut seen = std::collections::HashSet::new();
     let mut entries: Vec<Video> = recent
         .entries
@@ -696,6 +693,37 @@ pub fn subscribe_channel(url: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Remove `url` from the subscriptions file. Comments and blank lines are kept
+/// as-is; only the matching subscription line (URL part, ignoring a trailing
+/// slash and any inline channel name) is dropped.
+pub fn unsubscribe_channel(url: &str) -> anyhow::Result<()> {
+    let path = crate::config::youtube_subs_file();
+    if !path.exists() {
+        anyhow::bail!("Not subscribed");
+    }
+    let target = url.trim().trim_end_matches('/');
+    let content = std::fs::read_to_string(&path)?;
+    let mut removed = false;
+    let kept: Vec<&str> = content
+        .lines()
+        .filter(|line| {
+            let is_match =
+                parse_sub_line(line).is_some_and(|(u, _)| u.trim_end_matches('/') == target);
+            removed |= is_match;
+            !is_match
+        })
+        .collect();
+    if !removed {
+        anyhow::bail!("Not subscribed");
+    }
+    let mut out = kept.join("\n");
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    std::fs::write(&path, out)?;
+    Ok(())
+}
+
 /// Parse one subscriptions-file line into (url, optional name).
 /// Format: `URL` or `URL  Optional Channel Name` (split at first whitespace).
 fn parse_sub_line(line: &str) -> Option<(String, Option<String>)> {
@@ -744,7 +772,6 @@ pub async fn channel_from_url(url: &str) -> Channel {
             url: url.to_string(),
         };
     }
-    // Try to get channel name from yt-dlp with a single video
     if let Ok(json) = run_yt_dlp(url, 1).await {
         let name = json
             .get("channel")
@@ -758,7 +785,6 @@ pub async fn channel_from_url(url: &str) -> Channel {
                 url: url.to_string(),
             };
         }
-        // Try first entry
         if let Some(Value::Array(entries)) = json.get("entries") {
             if let Some(first) = entries.first() {
                 let name = first
@@ -776,7 +802,6 @@ pub async fn channel_from_url(url: &str) -> Channel {
             }
         }
     }
-    // Fallback: use the URL itself as name
     Channel {
         name: url
             .trim_end_matches('/')
@@ -851,7 +876,6 @@ pub async fn fetch_channels() -> Result<Vec<Channel>> {
         })
         .collect();
 
-    // Persist the merged cache for next time.
     if !resolved.is_empty() {
         let mut merged = cache;
         merged.extend(resolved);
@@ -888,7 +912,6 @@ fn best_avatar_url(json: &Value) -> Option<String> {
 
     let url_of = |t: &Value| t.get("url").and_then(|u| u.as_str()).map(|s| s.to_string());
 
-    // 1. Explicit full-resolution avatar.
     if let Some(t) = thumbs
         .iter()
         .find(|t| t.get("id").and_then(|i| i.as_str()) == Some("avatar_uncropped"))
@@ -898,7 +921,7 @@ fn best_avatar_url(json: &Value) -> Option<String> {
         }
     }
 
-    // 2. Most square sized image (avatars are square; banners are wide).
+    // Avatars are square, banners are wide, so the most square image wins.
     if let Some(t) = thumbs
         .iter()
         .filter_map(|t| {
@@ -915,7 +938,6 @@ fn best_avatar_url(json: &Value) -> Option<String> {
         }
     }
 
-    // 3. Fallback: last entry.
     thumbs.last().and_then(url_of)
 }
 

@@ -66,7 +66,6 @@ async fn run_chat(channel: &str, tx: mpsc::UnboundedSender<AppEvent>) -> Result<
     let mut lines = BufReader::new(reader).lines();
 
     while let Ok(Some(line)) = lines.next_line().await {
-        // Handle PING
         if line.starts_with("PING") {
             writer.write_all(b"PONG :tmi.twitch.tv\r\n").await?;
             continue;

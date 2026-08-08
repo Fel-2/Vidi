@@ -90,9 +90,14 @@ pub fn channel_action_items(subscribed: bool, show_shorts: bool) -> Vec<String> 
         .filter(|t| show_shorts || **t != "Shorts")
         .map(|s| s.to_string())
         .collect();
-    if !subscribed {
-        items.push("Subscribe".to_string());
-    }
+    items.push(
+        if subscribed {
+            "Unsubscribe"
+        } else {
+            "Subscribe"
+        }
+        .to_string(),
+    );
     items
 }
 
@@ -281,9 +286,11 @@ fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
                 .filter(|l| app.config.youtube.show_shorts || !l.ends_with("Shorts"))
                 .map(|s| s.to_string())
                 .collect();
-            if !ca.subscribed {
-                labels.push("➕  Subscribe".to_string());
-            }
+            labels.push(if ca.subscribed {
+                "💔  Unsubscribe".to_string()
+            } else {
+                "➕  Subscribe".to_string()
+            });
             menus::render_action_menu_string(
                 f,
                 area,

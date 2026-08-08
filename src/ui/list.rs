@@ -21,7 +21,6 @@ pub(super) fn render_list_screen(f: &mut Frame, area: Rect, ls: &ListScreen, app
         .constraints([Constraint::Length(3), Constraint::Min(1)])
         .split(area);
 
-    // Filter bar
     let filter_color = if ls.filter_active { YELLOW } else { OVERLAY };
     let filter_block = Block::default()
         .borders(Borders::ALL)
@@ -47,7 +46,6 @@ pub(super) fn render_list_screen(f: &mut Frame, area: Rect, ls: &ListScreen, app
         outer[0],
     );
 
-    // Body: list | preview
     let body = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
@@ -97,7 +95,6 @@ fn render_item_list(f: &mut Frame, area: Rect, ls: &ListScreen, app: &App) {
         })
         .collect();
 
-    // "Load More" row (sub feed or channel tab)
     let load_more_label = ls
         .load_more
         .as_ref()
@@ -137,7 +134,6 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
     let filtered = ls.filtered_items();
     let selected = filtered.get(ls.selected);
 
-    // Determine cache key and whether this item has a preview at all.
     let cache_key: Option<String> = selected.and_then(|item| match &item.data {
         ItemData::YoutubeVideo(v) => Some(v.id.clone()),
         ItemData::TwitchStream(s) if s.is_live => Some(format!("twitch_{}", s.login)),
@@ -162,7 +158,6 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
         None
     };
 
-    // Thumbnail placeholder rows
     let mut lines: Vec<Line> = Vec::new();
     if let Some(ref key) = cache_key {
         let entry = app.preview_cache.get(key);
@@ -191,7 +186,6 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
         )
     };
 
-    // Per-item metadata
     if let Some(item) = selected {
         match &item.data {
             ItemData::YoutubeVideo(v) => {

@@ -274,7 +274,6 @@ pub fn load_twitch_config() -> Result<TwitchConfig> {
         if trimmed.starts_with('#') || trimmed.is_empty() {
             continue;
         }
-        // Try KEY: VALUE first, then KEY=VALUE
         if let Some((key, val)) = trimmed
             .split_once(':')
             .map(|(k, v)| (k.trim(), v.trim()))

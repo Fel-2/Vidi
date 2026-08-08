@@ -220,7 +220,6 @@ pub fn kitty_update_display(app: &mut App) {
 
     let selected_id = selected_video_id(app);
 
-    // Nothing selected or not a video list.
     let Some(ref video_id) = selected_id else {
         if app.kitty_displayed.is_some() {
             clear_preview(app);
@@ -229,16 +228,13 @@ pub fn kitty_update_display(app: &mut App) {
         return;
     };
 
-    // Already showing the right image — nothing to do.
     if app.kitty_displayed.as_deref() == Some(video_id.as_str()) {
         return;
     }
 
-    // Clear any previous image.
     clear_preview(app);
     app.kitty_displayed = None;
 
-    // Check if image is ready.
     let Some(entry) = app.preview_cache.get(video_id) else {
         return;
     };
@@ -255,12 +251,10 @@ pub fn kitty_update_display(app: &mut App) {
         return;
     }
 
-    // Read the PNG bytes from disk.
     let Ok(png_bytes) = std::fs::read(&img_path) else {
         return;
     };
 
-    // Compute display dimensions that preserve aspect ratio.
     // Terminal cells are ~8px wide × 16px tall, so 1 cell-row = 2 cell-columns in pixel height.
     let (display_c, display_r) = png_aspect_fit(&png_bytes, tw, th);
 

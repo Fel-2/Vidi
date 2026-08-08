@@ -6,7 +6,7 @@ use crate::app::{
     QualitySelectScreen, Screen, SearchContext, SearchInputScreen, TwitchStreamActionsScreen,
     TwitchVodActionsScreen, VideoActionsScreen,
 };
-use crate::models::{ChannelTabLoadMore, Video};
+use crate::models::{ChannelTabLoadMore, ItemData, Video};
 use crate::ui::{
     channel_action_items, twitch_stream_action_items, twitch_vod_action_items, VIDEO_ACTION_ITEMS,
 };
@@ -306,6 +306,19 @@ pub(super) async fn handle_channel_actions(
                 return;
             }
 
+            if tab == "Unsubscribe" {
+                match youtube::unsubscribe_channel(&channel_url) {
+                    Ok(()) => {
+                        ca.subscribed = false;
+                        app.set_success(format!("Unsubscribed from {}", ca.channel.name));
+                        *app.current_screen_mut() = Screen::ChannelActions(ca);
+                        drop_channel_from_parent_list(app, &channel_url);
+                    }
+                    Err(e) => app.set_error(format!("Failed to unsubscribe: {e}")),
+                }
+                return;
+            }
+
             if tab == "Search" {
                 app.push_screen(Screen::SearchInput(SearchInputScreen {
                     prompt: format!("Search {}", ca.channel.name),
@@ -361,6 +374,32 @@ pub(super) async fn handle_channel_actions(
     }
 }
 
+/// Drop an unsubscribed channel from the "Channels" list underneath the actions
+/// screen, so going back doesn't show a channel we no longer follow.
+fn drop_channel_from_parent_list(app: &mut App, channel_url: &str) {
+    let target = channel_url.trim().trim_end_matches('/');
+    let Some(Screen::List(ls)) = app
+        .screen_stack
+        .iter_mut()
+        .rev()
+        .find(|s| matches!(s, Screen::List(_)))
+    else {
+        return;
+    };
+    if !matches!(ls.context, ListContext::SelectChannelToBrowse) {
+        return;
+    }
+    ls.items.retain(|i| match &i.data {
+        ItemData::Channel(ch) => ch.url.trim().trim_end_matches('/') != target,
+        _ => true,
+    });
+    let rows = ls.total_rows();
+    if ls.selected >= rows {
+        ls.selected = rows.saturating_sub(1);
+    }
+    ls.scroll_offset = ls.scroll_offset.min(ls.selected);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Twitch stream actions
 // ─────────────────────────────────────────────────────────────────────────────
@@ -411,7 +450,6 @@ pub(super) async fn handle_twitch_stream_actions(
                     chat::spawn_chat_task(channel, tx);
                 }
                 "Watch + Chat" => {
-                    // Launch stream detached, open chat in TUI
                     let args = player::streamlink_args(&stream_url, &quality, &player_bin);
                     let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                     player::spawn_detached(&args_str).ok();

@@ -202,7 +202,6 @@ pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: Lis
         KeyCode::Enter => {
             let filtered_len = ls.filtered_items().len();
 
-            // "Load More" virtual row selected?
             if ls.selected == filtered_len {
                 if let Some(ref lm) = ls.load_more.clone() {
                     execute_load_more(app, &ls, lm);
@@ -530,7 +529,6 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
 
         ListContext::CustomPlaylistActions => {
             if let ItemData::CustomPlaylist(pl) = item.data {
-                // Fetch playlist videos
                 let tx = app.tx.clone();
                 let url = pl.playlist_url.clone();
                 let name = pl.name.clone();
@@ -680,14 +678,12 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
         },
 
         ListContext::ChannelTab(channel_url) => {
-            // Item is a video
             if let ItemData::YoutubeVideo(video) = item.data {
                 app.push_screen(Screen::VideoActions(VideoActionsScreen {
                     video,
                     selected: 0,
                 }));
             } else if let ItemData::Text(tab) = item.data {
-                // Tab selection
                 let tab_path = match tab.as_str() {
                     "Videos" => "/videos",
                     "Shorts" => "/shorts",

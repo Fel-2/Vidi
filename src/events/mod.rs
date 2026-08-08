@@ -219,7 +219,6 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
                 load_more,
             );
             preview::trigger_preview_for_selected(app, &ls);
-            // Replace the current screen (still the sub-feed list).
             if matches!(app.current_screen(), Screen::List(_)) {
                 *app.current_screen_mut() = Screen::List(ls);
             } else {
@@ -257,7 +256,6 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
         AppEvent::PreviewReady { video_id } => {
             app.preview_cache
                 .insert(video_id.clone(), PreviewEntry { ready: true });
-            // If this is the currently displayed video, force kitty refresh.
             if app.kitty_displayed.as_deref() == Some(&video_id) {
                 app.kitty_displayed = None;
             }
@@ -313,7 +311,6 @@ pub async fn handle_key(app: &mut App, mut key: event::KeyEvent) {
         app.clear_message();
     }
 
-    // Help overlay: any key closes it; `?` opens it anywhere but text entry.
     if app.show_help {
         app.show_help = false;
         return;
@@ -334,7 +331,6 @@ pub async fn handle_key(app: &mut App, mut key: event::KeyEvent) {
         key = apply_keybindings(key, &app.config.keys);
     }
 
-    // Global quit
     if key.code == KeyCode::Char('q')
         && !text_entry
         && !matches!(app.current_screen(), Screen::TwitchChat(_))
@@ -344,7 +340,6 @@ pub async fn handle_key(app: &mut App, mut key: event::KeyEvent) {
         return;
     }
 
-    // Ctrl-C always quits
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         app.should_quit = true;
         return;
@@ -398,14 +393,12 @@ fn chrono_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     static UTC_OFFSET: OnceLock<i64> = OnceLock::new();
     let offset = *UTC_OFFSET.get_or_init(|| {
-        // Ask the system for the current UTC offset in seconds.
         std::process::Command::new("date")
             .arg("+%z")
             .output()
             .ok()
             .and_then(|o| {
                 let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                // Format: +HHMM or -HHMM
                 if s.len() >= 5 {
                     let sign: i64 = if s.starts_with('-') { -1 } else { 1 };
                     let hh = s[1..3].parse::<i64>().unwrap_or(0);

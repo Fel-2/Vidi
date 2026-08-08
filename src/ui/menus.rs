@@ -45,16 +45,13 @@ const TWITCH_MENU_DISPLAY: &[&str] = &[
 // ── Mode select ───────────────────────────────────────────────────────────────
 
 pub(super) fn render_mode_select(f: &mut Frame, area: Rect, selected: usize) {
-    // Center the ASCII art + menu vertically
     let art_height = YV_ART.len() as u16;
     let menu_items = ["📺  YouTube", "🟣  Twitch"];
     let menu_height = menu_items.len() as u16;
-    // gap between art and menu
     let gap: u16 = 1;
     let total_inner = art_height + gap + menu_height;
     let v_pad = area.height.saturating_sub(total_inner) / 2;
 
-    // Build lines: top padding + art + gap + menu items
     let mut lines: Vec<Line> = Vec::new();
     for _ in 0..v_pad {
         lines.push(Line::from(""));

@@ -37,7 +37,6 @@ pub(super) async fn handle_search_input(
 async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
     match ctx {
         SearchContext::YoutubeSearch => {
-            // Handle !N history recall
             let query = if let Some(n_str) = input.strip_prefix('!') {
                 if let Ok(n) = n_str.trim().parse::<usize>() {
                     let history = youtube::load_search_history();
@@ -52,7 +51,6 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
                 input.clone()
             };
 
-            // Save to history
             if app.config.youtube.search_history {
                 youtube::append_search_history(&query).ok();
             }

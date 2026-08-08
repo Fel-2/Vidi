@@ -200,7 +200,6 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
             let path = config::youtube_config_file();
             let editor = app.config.youtube.editor.clone();
             let _ = player::launch_external(&[&editor, &path.to_string_lossy()]).await;
-            // Reload config
             if let Ok(cfg) = config::load_config() {
                 app.config = cfg;
             }
@@ -316,7 +315,6 @@ async fn twitch_menu_action(app: &mut App, selected: usize) {
             });
         }
         "Watch VODs" => {
-            // Show channel selection list first
             let subs = twitch::load_twitch_subs();
             if subs.is_empty() {
                 app.set_error("No Twitch subscriptions found.");

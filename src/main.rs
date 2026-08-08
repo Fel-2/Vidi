@@ -30,7 +30,6 @@ use app::App;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Ensure config dirs & defaults exist
     config::write_default_youtube_config().ok();
     config::write_default_twitch_config().ok();
 
@@ -48,7 +47,6 @@ async fn main() -> Result<()> {
         default_panic(info);
     }));
 
-    // Set up terminal
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -56,16 +54,13 @@ async fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Run app
     let mut app = App::new(cfg);
 
-    // Pre-load saved video IDs
     let saved = youtube::load_saved();
     for v in &saved.entries {
         app.saved_ids.insert(v.id.clone());
     }
 
-    // Pre-load watched video IDs
     let recent = youtube::load_recent();
     for v in &recent.entries {
         app.watched_ids.insert(v.id.clone());
@@ -73,7 +68,6 @@ async fn main() -> Result<()> {
 
     let result = run_app(&mut terminal, &mut app).await;
 
-    // Restore terminal
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
@@ -93,7 +87,6 @@ async fn main() -> Result<()> {
 // Dependency check
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Return true if `bin` is found on PATH.
 fn binary_exists(bin: &str) -> bool {
     let Some(paths) = std::env::var_os("PATH") else {
         return false;

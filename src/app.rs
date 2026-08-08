@@ -304,9 +304,7 @@ pub struct App {
     pub tx: mpsc::UnboundedSender<AppEvent>,
     pub rx: mpsc::UnboundedReceiver<AppEvent>,
     pub should_quit: bool,
-    /// Saved video IDs for quick lookup.
     pub saved_ids: std::collections::HashSet<String>,
-    /// Watched video IDs for quick lookup.
     pub watched_ids: std::collections::HashSet<String>,
     /// Thumbnail preview cache keyed by video ID.
     pub preview_cache: std::collections::HashMap<String, PreviewEntry>,
@@ -386,7 +384,6 @@ impl App {
         self.message = None;
     }
 
-    // ----- Convenience: build a ListScreen of videos -----
     pub fn make_video_list(
         title: impl Into<String>,
         videos: Vec<Video>,
@@ -439,7 +436,6 @@ impl App {
         ls
     }
 
-    // ----- Convenience: build a ListScreen of twitch streams -----
     pub fn make_stream_list(
         title: impl Into<String>,
         streams: Vec<TwitchStream>,
@@ -471,7 +467,6 @@ impl App {
         ListScreen::new(title, items, context)
     }
 
-    // ----- Convenience: build a ListScreen of twitch categories (games) -----
     pub fn make_game_list(
         title: impl Into<String>,
         games: Vec<TwitchGame>,

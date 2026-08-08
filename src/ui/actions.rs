@@ -33,7 +33,6 @@ pub(super) fn render_video_actions(f: &mut Frame, area: Rect, va: &VideoActionsS
         .constraints([Constraint::Length(6), Constraint::Min(1)])
         .split(area);
 
-    // Video info panel
     let info = vec![
         Line::from(vec![
             Span::styled(
@@ -79,7 +78,6 @@ pub(super) fn render_video_actions(f: &mut Frame, area: Rect, va: &VideoActionsS
         .wrap(Wrap { trim: true });
     f.render_widget(info_para, chunks[0]);
 
-    // Actions list
     let display_items = VIDEO_ACTION_DISPLAY;
     let accent = TEAL;
 
