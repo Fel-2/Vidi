@@ -31,6 +31,26 @@ use app::App;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    match std::env::args().nth(1).as_deref() {
+        Some("-V" | "--version") => {
+            println!("vidi {}", update::current_version());
+            return Ok(());
+        }
+        Some("-h" | "--help") => {
+            println!(
+                "vidi {}\nA terminal UI for YouTube and Twitch.\n\n\
+                 Usage: vidi [OPTIONS]\n\n\
+                 Options:\n  \
+                 -V, --version  Print version\n  \
+                 -h, --help     Print this help\n\n\
+                 Config lives in ~/.config/vidi; press ? in the app for keybindings.",
+                update::current_version()
+            );
+            return Ok(());
+        }
+        _ => {}
+    }
+
     config::write_default_youtube_config().ok();
     config::write_default_twitch_config().ok();
 

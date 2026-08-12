@@ -49,7 +49,7 @@ pub(super) fn render_mode_select(f: &mut Frame, area: Rect, selected: usize) {
     let menu_items = ["📺  YouTube", "🟣  Twitch"];
     let menu_height = menu_items.len() as u16;
     let gap: u16 = 1;
-    let total_inner = art_height + gap + menu_height;
+    let total_inner = art_height + 1 + gap + menu_height;
     let v_pad = area.height.saturating_sub(total_inner) / 2;
 
     let mut lines: Vec<Line> = Vec::new();
@@ -62,6 +62,10 @@ pub(super) fn render_mode_select(f: &mut Frame, area: Rect, selected: usize) {
             Style::default().fg(MAUVE).add_modifier(Modifier::BOLD),
         )));
     }
+    lines.push(Line::from(Span::styled(
+        format!("v{}", crate::update::current_version()),
+        Style::default().fg(SUBTEXT),
+    )));
     for _ in 0..gap {
         lines.push(Line::from(""));
     }
@@ -175,4 +179,26 @@ pub(super) fn render_action_menu_string(
         .border_style(Style::default().fg(border));
 
     f.render_widget(List::new(list_items).block(block), area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{backend::TestBackend, Terminal};
+
+    #[test]
+    fn mode_select_shows_version() {
+        let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+        terminal
+            .draw(|f| render_mode_select(f, f.area(), 0))
+            .unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains(&format!("v{}", crate::update::current_version())));
+    }
 }

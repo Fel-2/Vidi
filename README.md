@@ -83,6 +83,9 @@ cargo build --release
 
 Binary is at `target/release/vidi`.
 
+`vidi --version` prints the version; it is also shown under the logo on the
+start screen and in the `?` help overlay.
+
 ## Configuration
 
 Config files are created automatically on first run:

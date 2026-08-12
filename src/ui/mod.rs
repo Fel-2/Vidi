@@ -176,8 +176,10 @@ fn render_help(f: &mut Frame, area: Rect, keys: &crate::config::Keybindings) {
         ("r".to_string(), "refresh subscription feed"),
         ("?".to_string(), "this help"),
     ];
+    let version = format!("vidi v{}", crate::update::current_version());
     let extra = [
         "",
+        &version,
         "Lists: ❤ saved   ✓ watched",
         "Search prefixes: :today :week :month :year :live …",
         "Keys are configurable in vidi.conf (KEY_UP, KEY_DOWN, …).",
