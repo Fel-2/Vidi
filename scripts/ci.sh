@@ -1,5 +1,4 @@
 #!/bin/sh
-# Local equivalent of .github/workflows/ci.yml — run before pushing.
 set -e
 
 cargo fmt --check

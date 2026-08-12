@@ -56,6 +56,16 @@ A terminal UI for YouTube and Twitch, written in Rust.
 
 ## Install
 
+### Prebuilt binary
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Fel-2/Vidi/main/install.sh | sh
+```
+
+Installs the latest release to `~/.local/bin`. Static musl builds for `x86_64`
+and `aarch64`, checksum-verified. Set `PREFIX=/usr/local/bin` to change the
+destination or `VERSION=v0.2.0` to pin a release.
+
 ### Arch / Artix
 
 ```bash
