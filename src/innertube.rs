@@ -20,7 +20,11 @@ const CLIENT_VERSION: &str = "2.20250520.01.00";
 fn http_client() -> &'static reqwest::Client {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     CLIENT.get_or_init(|| {
+        // One connection per parallel fetch: multiplexing the feed's ~140
+        // browse responses over a single HTTP/2 connection is measurably slower.
         reqwest::Client::builder()
+            .http1_only()
+            .pool_max_idle_per_host(32)
             .timeout(std::time::Duration::from_secs(20))
             .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             .build()
@@ -297,6 +301,107 @@ fn video_from_shorts_lockup(r: &Value, _now: i64) -> Option<Video> {
     })
 }
 
+/// Channel tabs return `lockupViewModel` instead of a gridVideoRenderer.
+/// Playlist and channel lockups share the shape, so skip anything that is not
+/// a video or short.
+fn video_from_lockup(r: &Value, now: i64) -> Option<Video> {
+    let content_type = r.get("contentType").and_then(|t| t.as_str()).unwrap_or("");
+    let is_short = content_type == "LOCKUP_CONTENT_TYPE_SHORTS";
+    if content_type != "LOCKUP_CONTENT_TYPE_VIDEO" && !is_short {
+        return None;
+    }
+    let id = r.get("contentId")?.as_str()?.to_string();
+    let meta = r.pointer("/metadata/lockupMetadataViewModel");
+    let title = meta
+        .and_then(|m| m.pointer("/title/content"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("(no title)")
+        .to_string();
+
+    // Metadata rows carry "672K views" and "1 day ago", plus a channel byline
+    // on surfaces that have one (channel tabs omit it).
+    let mut parts = Vec::new();
+    if let Some(rows) = meta.and_then(|m| m.get("metadata")) {
+        collect_key(rows, "metadataParts", &mut parts);
+    }
+    let texts: Vec<&Value> = parts
+        .iter()
+        .filter_map(|p| p.as_array())
+        .flatten()
+        .filter_map(|p| p.get("text"))
+        .collect();
+
+    let mut view_count = None;
+    let mut timestamp = None;
+    let mut channel = String::new();
+    let mut channel_url = String::new();
+    for t in texts {
+        let Some(content) = t.get("content").and_then(|c| c.as_str()) else {
+            continue;
+        };
+        // A byline part links to the channel; plain parts are views/age.
+        if let Some(ep) = t
+            .pointer("/commandRuns/0/onTap/innertubeCommand/browseEndpoint")
+            .filter(|_| channel.is_empty())
+        {
+            channel = content.to_string();
+            channel_url = ep
+                .get("canonicalBaseUrl")
+                .and_then(|u| u.as_str())
+                .map(|base| format!("https://www.youtube.com{}", base))
+                .or_else(|| {
+                    ep.get("browseId")
+                        .and_then(|i| i.as_str())
+                        .map(|id| format!("https://www.youtube.com/channel/{}", id))
+                })
+                .unwrap_or_default();
+        } else if view_count.is_none() && content.contains("view") {
+            view_count = parse_short_view_count(content);
+        } else if timestamp.is_none() {
+            timestamp = parse_relative_time(content, now);
+        }
+    }
+
+    // The duration lives in the thumbnail badge ("7:02"); live entries carry
+    // text like "LIVE" instead.
+    let mut badges = Vec::new();
+    if let Some(image) = r.get("contentImage") {
+        collect_key(image, "thumbnailBadgeViewModel", &mut badges);
+    }
+    let duration_string = badges
+        .iter()
+        .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+        .find(|t| t.contains(':') || t.eq_ignore_ascii_case("LIVE"))
+        .unwrap_or_default()
+        .to_string();
+
+    let thumbnail = r
+        .pointer("/contentImage/thumbnailViewModel/image/sources")
+        .and_then(|s| s.as_array())
+        .and_then(|arr| arr.last())
+        .and_then(|s| s.get("url"))
+        .and_then(|u| u.as_str())
+        .map(|u| u.split('?').next().unwrap_or(u).to_string())
+        .unwrap_or_else(|| format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", id));
+
+    Some(Video {
+        url: format!("https://www.youtube.com/watch?v={}", id),
+        title,
+        channel,
+        channel_url,
+        upload_date: timestamp
+            .map(crate::youtube::timestamp_to_yyyymmdd)
+            .unwrap_or_default(),
+        duration_string,
+        view_count,
+        thumbnail,
+        timestamp,
+        is_short,
+        id,
+        ..Default::default()
+    })
+}
+
 /// Parse short-form counts like "1.2M views" / "987K views" / "512 views".
 pub fn parse_short_view_count(text: &str) -> Option<u64> {
     let first = text.split_whitespace().next()?;
@@ -332,6 +437,15 @@ fn videos_from_response(resp: &Value, now: i64) -> Vec<Video> {
     collect_key(resp, "shortsLockupViewModel", &mut shorts);
     for r in shorts {
         if let Some(v) = video_from_shorts_lockup(r, now) {
+            if seen.insert(v.id.clone()) {
+                out.push(v);
+            }
+        }
+    }
+    let mut lockups = Vec::new();
+    collect_key(resp, "lockupViewModel", &mut lockups);
+    for r in lockups {
+        if let Some(v) = video_from_lockup(r, now) {
             if seen.insert(v.id.clone()) {
                 out.push(v);
             }
@@ -877,5 +991,56 @@ mod tests {
     fn continuation_token_found() {
         let v = json!({"x": {"continuationCommand": {"token": "tok"}}});
         assert_eq!(find_continuation(&v).as_deref(), Some("tok"));
+    }
+
+    // ── lockupViewModel (channel tabs) ───────────────────────────────────
+
+    fn lockup(content_type: &str) -> Value {
+        json!({
+            "contentId": "aB5LGrHISqY",
+            "contentType": content_type,
+            "contentImage": {"thumbnailViewModel": {
+                "image": {"sources": [{"url": "https://i.ytimg.com/vi/aB5LGrHISqY/hq.jpg?sqp=x"}]},
+                "overlays": [{"thumbnailBottomOverlayViewModel": {"badges": [
+                    {"thumbnailBadgeViewModel": {"text": "7:02"}}
+                ]}}]
+            }},
+            "metadata": {"lockupMetadataViewModel": {
+                "title": {"content": "A title"},
+                "metadata": {"contentMetadataViewModel": {"metadataRows": [
+                    {"metadataParts": [
+                        {"text": {"content": "Some Channel", "commandRuns": [{"onTap": {"innertubeCommand":
+                            {"browseEndpoint": {"browseId": "UCxyz", "canonicalBaseUrl": "/@some"}}}}]}},
+                        {"text": {"content": "672K views"}},
+                        {"text": {"content": "1 day ago"}}
+                    ]}
+                ]}}
+            }}
+        })
+    }
+
+    #[test]
+    fn lockup_video_parsed() {
+        let v = video_from_lockup(&lockup("LOCKUP_CONTENT_TYPE_VIDEO"), 1_000_000).unwrap();
+        assert_eq!(v.id, "aB5LGrHISqY");
+        assert_eq!(v.title, "A title");
+        assert_eq!(v.channel, "Some Channel");
+        assert_eq!(v.channel_url, "https://www.youtube.com/@some");
+        assert_eq!(v.duration_string, "7:02");
+        assert_eq!(v.view_count, Some(672_000));
+        assert_eq!(v.timestamp, Some(1_000_000 - 86400));
+        assert_eq!(v.thumbnail, "https://i.ytimg.com/vi/aB5LGrHISqY/hq.jpg");
+        assert!(!v.is_short);
+    }
+
+    #[test]
+    fn lockup_shorts_flagged() {
+        let v = video_from_lockup(&lockup("LOCKUP_CONTENT_TYPE_SHORTS"), 1_000_000).unwrap();
+        assert!(v.is_short);
+    }
+
+    #[test]
+    fn lockup_playlist_skipped() {
+        assert!(video_from_lockup(&lockup("LOCKUP_CONTENT_TYPE_PLAYLIST"), 1_000_000).is_none());
     }
 }
