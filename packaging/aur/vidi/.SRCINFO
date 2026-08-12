@@ -1,0 +1,24 @@
+pkgbase = vidi
+	pkgdesc = Terminal UI for YouTube and Twitch
+	pkgver = 0.3.0
+	pkgrel = 1
+	url = https://codeberg.org/Fel/Vidi
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = cargo
+	depends = yt-dlp
+	depends = mpv
+	depends = gcc-libs
+	optdepends = streamlink: Twitch live stream status and playback
+	optdepends = kitty: inline thumbnail previews
+	optdepends = ghostty: inline thumbnail previews
+	optdepends = wezterm: inline thumbnail previews
+	provides = vidi
+	conflicts = vidi-bin
+	conflicts = vidi-git
+	options = !lto
+	source = vidi-0.3.0.tar.gz::https://github.com/Fel-2/Vidi/archive/refs/tags/v0.3.0.tar.gz
+	sha256sums = 8ae1de77aa95e98d83f3338118f5f58e324358d7c954cf2fbb220c7d4f96d3b7
+
+pkgname = vidi
