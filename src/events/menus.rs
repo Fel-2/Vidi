@@ -119,31 +119,7 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
                 app.loading = Some("Fetching subscription feed…".to_string());
             }
 
-            let tx = app.tx.clone();
-            let subs_clone = subs.clone();
-            tokio::spawn(async move {
-                match youtube::fetch_subscription_feed(subs_clone.clone(), 5, 8, None).await {
-                    Ok(items) => {
-                        youtube::save_feed_cache(&items);
-                        let load_more = Some(SubFeedLoadMore {
-                            subs: subs_clone,
-                            next_playlist_end: 20,
-                            label: "── Load More ──".to_string(),
-                        });
-                        if had_cache {
-                            let _ = tx.send(AppEvent::SubFeedRefreshed { items, load_more });
-                        } else {
-                            let _ = tx.send(AppEvent::SubFeedResults { items, load_more });
-                        }
-                    }
-                    Err(e) => {
-                        // A failed background refresh shouldn't nuke the visible list.
-                        if !had_cache {
-                            let _ = tx.send(AppEvent::Error(e.to_string()));
-                        }
-                    }
-                }
-            });
+            spawn_feed_fetch(app.tx.clone(), subs, had_cache, had_cache);
         }
         "Channels" => {
             let tx = app.tx.clone();
@@ -227,6 +203,39 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
         }
         _ => {}
     }
+}
+
+/// Fetch the subscription feed in the background.
+/// `in_place` – swap the visible feed list instead of pushing a new screen.
+/// `silent_errors` – drop failures so a visible list isn't replaced by an error.
+pub(super) fn spawn_feed_fetch(
+    tx: tokio::sync::mpsc::UnboundedSender<AppEvent>,
+    subs: Vec<String>,
+    in_place: bool,
+    silent_errors: bool,
+) {
+    tokio::spawn(async move {
+        match youtube::fetch_subscription_feed(subs.clone(), 5, 8, None).await {
+            Ok(items) => {
+                youtube::save_feed_cache(&items);
+                let load_more = Some(SubFeedLoadMore {
+                    subs,
+                    next_playlist_end: 20,
+                    label: "── Load More ──".to_string(),
+                });
+                if in_place {
+                    let _ = tx.send(AppEvent::SubFeedRefreshed { items, load_more });
+                } else {
+                    let _ = tx.send(AppEvent::SubFeedResults { items, load_more });
+                }
+            }
+            Err(e) => {
+                if !silent_errors {
+                    let _ = tx.send(AppEvent::Error(e.to_string()));
+                }
+            }
+        }
+    });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

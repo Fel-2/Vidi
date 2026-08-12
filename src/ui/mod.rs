@@ -173,6 +173,7 @@ fn render_help(f: &mut Frame, area: Rect, keys: &crate::config::Keybindings) {
         ("p / d".to_string(), "play / download selected"),
         ("y / s".to_string(), "copy URL / save toggle"),
         ("⇥".to_string(), "queue video (in Queue: remove)"),
+        ("r".to_string(), "refresh subscription feed"),
         ("?".to_string(), "this help"),
     ];
     let extra = [
@@ -403,9 +404,16 @@ fn keybind_hints(screen: &Screen) -> String {
         Screen::List(ls) if ls.filter_active => {
             "Type to filter   ↵ keep   ⎋ clear   ^W word   ^U line".to_string()
         }
-        Screen::List(_) => {
-            "↑↓ navigate   / filter   nN match   p play   d download   y copy   s save   ↵ select   ? help"
-                .to_string()
+        Screen::List(ls) => {
+            let refresh = if ls.title == "Subscription Feed" {
+                "   r refresh"
+            } else {
+                ""
+            };
+            format!(
+                "↑↓ navigate   / filter   nN match   p play   d download   y copy   s save   ↵ select{}   ? help",
+                refresh
+            )
         }
         Screen::VideoActions(_)
         | Screen::QualitySelect(_)

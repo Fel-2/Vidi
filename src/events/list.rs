@@ -185,6 +185,19 @@ pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: Lis
             ls.filter_active = true;
             *app.current_screen_mut() = Screen::List(ls);
         }
+        KeyCode::Char('r') if ls.title == "Subscription Feed" => {
+            let subs = match &ls.load_more {
+                Some(lm) => lm.subs.clone(),
+                None => youtube::load_subscriptions(),
+            };
+            if subs.is_empty() {
+                app.set_error("No YouTube subscriptions found.");
+            } else {
+                app.set_info("Refreshing feed…");
+                super::menus::spawn_feed_fetch(app.tx.clone(), subs, true, false);
+            }
+            *app.current_screen_mut() = Screen::List(ls);
+        }
         KeyCode::Backspace => {
             ls.filter.clear();
             ls.selected = 0;
