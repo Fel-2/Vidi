@@ -142,6 +142,12 @@ async fn run_app(
     app: &mut App,
 ) -> Result<()> {
     loop {
+        if player::take_tui_suspended() {
+            terminal.clear()?;
+            // The restored screen has no kitty image on it any more.
+            app.kitty_displayed = None;
+        }
+
         // Time the draw so we can detect if it was unexpectedly slow.
         let draw_start = std::time::Instant::now();
         terminal.draw(|f| ui::render(f, app))?;

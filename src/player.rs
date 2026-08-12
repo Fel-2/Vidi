@@ -4,6 +4,16 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use std::io::stdout;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static TUI_SUSPENDED: AtomicBool = AtomicBool::new(false);
+
+/// Whether the TUI was suspended since the last call, clearing the flag.
+/// The restored alternate screen is empty, so the caller must repaint fully
+/// instead of letting ratatui diff against the pre-suspend frame.
+pub fn take_tui_suspended() -> bool {
+    TUI_SUSPENDED.swap(false, Ordering::Relaxed)
+}
 
 /// Suspend TUI, run an external process, then restore TUI.
 pub async fn launch_external(args: &[&str]) -> Result<()> {
@@ -20,6 +30,7 @@ pub async fn launch_external(args: &[&str]) -> Result<()> {
 
     enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;
+    TUI_SUSPENDED.store(true, Ordering::Relaxed);
 
     status?;
     Ok(())
