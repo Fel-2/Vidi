@@ -1,6 +1,6 @@
 pkgbase = vidi
 	pkgdesc = Terminal UI for YouTube and Twitch
-	pkgver = 0.3.1
+	pkgver = 0.3.2
 	pkgrel = 1
 	url = https://codeberg.org/Fel/Vidi
 	arch = x86_64
@@ -18,7 +18,7 @@ pkgbase = vidi
 	conflicts = vidi-bin
 	conflicts = vidi-git
 	options = !lto
-	source = vidi-0.3.1.tar.gz::https://github.com/Fel-2/Vidi/archive/refs/tags/v0.3.1.tar.gz
-	sha256sums = 43bae54975901245c7c4ace37c09bb8dc9f0d24845e370a335a4d61e06fd652a
+	source = vidi-0.3.2.tar.gz::https://github.com/Fel-2/Vidi/archive/refs/tags/v0.3.2.tar.gz
+	sha256sums = a1d18bf856ef18b726a8ef191fc013ec4a32238e2ed7c43e982c30f9a60dd2c3
 
 pkgname = vidi
