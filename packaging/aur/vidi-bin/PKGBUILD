@@ -1,6 +1,6 @@
 # Maintainer: Fel <exwin00@proton.me>
 pkgname=vidi-bin
-pkgver=0.3.0
+pkgver=0.3.1
 pkgrel=1
 pkgdesc="Terminal UI for YouTube and Twitch (prebuilt binary)"
 arch=('x86_64' 'aarch64')
@@ -18,8 +18,8 @@ conflicts=('vidi' 'vidi-git')
 _url="https://github.com/Fel-2/Vidi/releases/download/v$pkgver"
 source_x86_64=("$pkgname-$pkgver-x86_64.tar.gz::$_url/vidi-v$pkgver-x86_64-unknown-linux-musl.tar.gz")
 source_aarch64=("$pkgname-$pkgver-aarch64.tar.gz::$_url/vidi-v$pkgver-aarch64-unknown-linux-musl.tar.gz")
-sha256sums_x86_64=('079d1f32c74f4ec3c28e7fd3079da4543f22ff779afb791f747a7b3128e167b9')
-sha256sums_aarch64=('28856b896dc917c855b551e0f4fb5cdc8b385a37b9f879e35a2b306f29d98506')
+sha256sums_x86_64=('411aaef2a5821e9537570a8f07d208d846f07d66fe11afda0051a7172ef0b402')
+sha256sums_aarch64=('03abbbde5e6c63463d0573c47ec33161e24afc072630dceed93b8e088e26ec1a')
 
 package() {
   local _dir="vidi-v$pkgver-$CARCH-unknown-linux-musl"
