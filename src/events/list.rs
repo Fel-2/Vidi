@@ -690,6 +690,24 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
             _ => {}
         },
 
+        ListContext::UpdatePrompt(tag) => {
+            app.pop_screen();
+            let ItemData::Text(choice) = item.data else {
+                return;
+            };
+            if choice != "Update now" {
+                return;
+            }
+            let Some(cmd) = crate::update::install_command() else {
+                app.set_error("Cannot write to the install directory.");
+                return;
+            };
+            match player::launch_external(&["sh", "-c", &cmd]).await {
+                Ok(()) => app.set_success(format!("Installed {} — restart vidi to use it.", tag)),
+                Err(e) => app.set_error(format!("Update failed: {}", e)),
+            }
+        }
+
         ListContext::ChannelTab(channel_url) => {
             if let ItemData::YoutubeVideo(video) = item.data {
                 app.push_screen(Screen::VideoActions(VideoActionsScreen {

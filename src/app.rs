@@ -66,6 +66,8 @@ pub enum AppEvent {
     PreviewReady {
         video_id: String,
     },
+    /// A newer release is available; carries its tag.
+    UpdateAvailable(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +91,8 @@ pub enum ListContext {
     ChannelTab(String), // channel url
     /// Play-next queue screen (virtual play/clear rows + queued videos).
     Queue,
+    /// Update prompt for the given release tag.
+    UpdatePrompt(String),
 }
 
 // ---------------------------------------------------------------------------

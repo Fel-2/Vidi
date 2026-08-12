@@ -24,6 +24,8 @@ pub struct YoutubeConfig {
     pub sponsorblock: String,
     /// Show YouTube Shorts in lists and channel tabs (hidden by default).
     pub show_shorts: bool,
+    /// Check for a newer release on launch and offer to install it.
+    pub check_updates: bool,
 }
 
 impl Default for YoutubeConfig {
@@ -44,6 +46,7 @@ impl Default for YoutubeConfig {
             watch_progress: true,
             sponsorblock: String::new(),
             show_shorts: false,
+            check_updates: true,
         }
     }
 }
@@ -256,6 +259,9 @@ pub fn load_youtube_config() -> Result<YoutubeConfig> {
     if let Some(v) = parse_kv(&content, "SHOW_SHORTS") {
         cfg.show_shorts = v.to_lowercase() == "true";
     }
+    if let Some(v) = parse_kv(&content, "CHECK_UPDATES") {
+        cfg.check_updates = v.to_lowercase() == "true";
+    }
     Ok(cfg)
 }
 
@@ -362,6 +368,8 @@ pub fn write_default_youtube_config() -> Result<()> {
          # SPONSORBLOCK: sponsor\n\
          # Show YouTube Shorts in lists and channel tabs (hidden by default):\n\
          SHOW_SHORTS: false\n\
+         # Check for a newer release on launch and offer to install it:\n\
+         CHECK_UPDATES: true\n\
          # Optional single-key overrides (arrows + vim keys always work):\n\
          # KEY_UP: k\n\
          # KEY_DOWN: j\n\

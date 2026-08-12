@@ -10,6 +10,7 @@ mod progress;
 mod subs_import;
 mod twitch;
 mod ui;
+mod update;
 mod youtube;
 
 use anyhow::Result;
@@ -64,6 +65,15 @@ async fn main() -> Result<()> {
     let recent = youtube::load_recent();
     for v in &recent.entries {
         app.watched_ids.insert(v.id.clone());
+    }
+
+    if app.config.youtube.check_updates {
+        let tx = app.tx.clone();
+        tokio::spawn(async move {
+            if let Some(tag) = update::newer_release().await {
+                let _ = tx.send(app::AppEvent::UpdateAvailable(tag));
+            }
+        });
     }
 
     let result = run_app(&mut terminal, &mut app).await;

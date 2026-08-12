@@ -45,6 +45,7 @@ A terminal UI for YouTube and Twitch, written in Rust.
 - Save/unsave videos to a local watchlist
 - Fuzzy filter bar on all list screens (`/`, vim-style)
 - Help overlay on `?`
+- Update check on launch, with a prompt to install the latest release (`CHECK_UPDATES: false` disables)
 
 ## Dependencies
 
@@ -88,7 +89,7 @@ Config files are created automatically on first run:
 
 | File | Purpose |
 |------|---------|
-| `~/.config/vidi/vidi.conf` | Player, quality, result limits, `WATCH_PROGRESS`, `SPONSORBLOCK` |
+| `~/.config/vidi/vidi.conf` | Player, quality, result limits, `WATCH_PROGRESS`, `SPONSORBLOCK`, `CHECK_UPDATES` |
 | `~/.config/vidi/subscriptions` | YouTube channel URLs (one per line) |
 | `~/.config/vidi/twitch.conf` | Twitch player and quality settings |
 | `~/.config/vidi/twitch_subs` | Twitch usernames (one per line) |

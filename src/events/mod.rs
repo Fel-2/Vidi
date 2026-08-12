@@ -12,7 +12,7 @@ use crate::app::{
 };
 use crate::models::ItemData;
 use crate::models::ListItem;
-use crate::{config, preview};
+use crate::{config, preview, update};
 use crossterm::event::{self, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 
 pub fn handle_app_event(app: &mut App, event: AppEvent) {
@@ -259,6 +259,28 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             if app.kitty_displayed.as_deref() == Some(&video_id) {
                 app.kitty_displayed = None;
             }
+        }
+
+        AppEvent::UpdateAvailable(tag) => {
+            if crate::update::install_command().is_none() {
+                app.set_info(format!(
+                    "vidi {} is available — update through your package manager.",
+                    tag
+                ));
+                return;
+            }
+            let items = ["Update now", "Not now"]
+                .iter()
+                .map(|label| ListItem {
+                    display: label.to_string(),
+                    data: ItemData::Text(label.to_string()),
+                })
+                .collect();
+            app.push_screen(Screen::List(ListScreen::new(
+                format!("Update available — {} → {}", update::current_version(), tag),
+                items,
+                ListContext::UpdatePrompt(tag),
+            )));
         }
     }
 }
