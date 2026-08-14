@@ -6,11 +6,12 @@ use crate::app::{
     QualitySelectScreen, Screen, SearchContext, SearchInputScreen, TwitchStreamActionsScreen,
     TwitchVodActionsScreen, VideoActionsScreen,
 };
-use crate::models::{ChannelTabLoadMore, ItemData, Video};
+use crate::models::{ChannelTabLoadMore, ItemData, Platform, Video};
 use crate::ui::{
-    channel_action_items, twitch_stream_action_items, twitch_vod_action_items, VIDEO_ACTION_ITEMS,
+    channel_action_items, peertube_channel_action_items, twitch_stream_action_items,
+    twitch_vod_action_items, VIDEO_ACTION_ITEMS,
 };
-use crate::{chat, player, twitch, youtube};
+use crate::{chat, peertube, player, twitch, youtube};
 use crossterm::event::{self, KeyCode};
 
 use super::open_url_in_browser;
@@ -21,6 +22,7 @@ async fn watch_video(app: &mut App, video: &Video, quality: &str) {
     let mut args = player::mpv_watch_args(&video.url, &video.title, quality);
     args.extend(player::mpv_sponsorblock_args(
         &app.config.youtube.sponsorblock,
+        &video.url,
     ));
     if app.config.youtube.watch_progress && !video.id.is_empty() {
         if let Some(start) = crate::progress::resume_position(&video.id) {
@@ -119,7 +121,7 @@ pub(super) async fn video_action_execute(app: &mut App, video: &Video, action: &
         "Play All" => {
             let playlist_url = video.playlist_url.as_deref().unwrap_or(&video.url);
             let mut args = player::mpv_watch_args(playlist_url, &video.title, quality);
-            args.extend(player::mpv_sponsorblock_args(&sponsorblock));
+            args.extend(player::mpv_sponsorblock_args(&sponsorblock, playlist_url));
             let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
             let _ = player::launch_external(&args_str).await;
         }
@@ -131,7 +133,7 @@ pub(super) async fn video_action_execute(app: &mut App, video: &Video, action: &
             let sb = sponsorblock.clone();
             tokio::spawn(async move {
                 let mut args = player::ytdlp_download_args(&url, &dl_dir);
-                args.extend(player::ytdlp_sponsorblock_args(&sb));
+                args.extend(player::ytdlp_sponsorblock_args(&sb, &url));
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = tx.send(AppEvent::DownloadStarted(format!("Downloading: {}", title)));
                 match player::run_background(&args_str).await {
@@ -158,7 +160,7 @@ pub(super) async fn video_action_execute(app: &mut App, video: &Video, action: &
             let sb = sponsorblock.clone();
             tokio::spawn(async move {
                 let mut args = player::ytdlp_download_audio_args(&url, &dl_dir);
-                args.extend(player::ytdlp_sponsorblock_args(&sb));
+                args.extend(player::ytdlp_sponsorblock_args(&sb, &url));
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = tx.send(AppEvent::DownloadStarted(format!(
                     "Downloading audio: {}",
@@ -190,7 +192,7 @@ pub(super) async fn video_action_execute(app: &mut App, video: &Video, action: &
             let sb = sponsorblock.clone();
             tokio::spawn(async move {
                 let mut args = player::ytdlp_download_args(&playlist_url, &dl_dir);
-                args.extend(player::ytdlp_sponsorblock_args(&sb));
+                args.extend(player::ytdlp_sponsorblock_args(&sb, &playlist_url));
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = tx.send(AppEvent::DownloadStarted("Downloading all…".to_string()));
                 match player::run_background(&args_str).await {
@@ -215,7 +217,7 @@ pub(super) async fn video_action_execute(app: &mut App, video: &Video, action: &
             let sb = sponsorblock.clone();
             tokio::spawn(async move {
                 let mut args = player::ytdlp_download_audio_args(&playlist_url, &dl_dir);
-                args.extend(player::ytdlp_sponsorblock_args(&sb));
+                args.extend(player::ytdlp_sponsorblock_args(&sb, &playlist_url));
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = tx.send(AppEvent::DownloadStarted(
                     "Downloading all audio…".to_string(),
@@ -276,7 +278,10 @@ pub(super) async fn handle_channel_actions(
     key: event::KeyEvent,
     mut ca: ChannelActionsScreen,
 ) {
-    let items = channel_action_items(ca.subscribed, app.config.youtube.show_shorts);
+    let items = match ca.platform {
+        Platform::Youtube => channel_action_items(ca.subscribed, app.config.youtube.show_shorts),
+        Platform::Peertube => peertube_channel_action_items(ca.subscribed),
+    };
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
             if ca.selected > 0 {
@@ -293,6 +298,11 @@ pub(super) async fn handle_channel_actions(
         KeyCode::Enter => {
             let tab = &items[ca.selected];
             let channel_url = ca.channel.url.clone();
+
+            if ca.platform == Platform::Peertube {
+                peertube_channel_action(app, &mut ca, tab.clone()).await;
+                return;
+            }
 
             if tab == "Subscribe" {
                 match youtube::subscribe_channel(&channel_url) {
@@ -354,7 +364,7 @@ pub(super) async fn handle_channel_actions(
                             page_size: limit,
                             label: "── Load More ──".to_string(),
                         });
-                        let _ = tx.send(AppEvent::YoutubeResults {
+                        let _ = tx.send(AppEvent::VideoResults {
                             items,
                             context: ListContext::ChannelTab(channel_url_clone),
                             title: tab_name,
@@ -582,6 +592,56 @@ pub(super) async fn handle_twitch_vod_actions(
         }
         KeyCode::Esc => {
             app.pop_screen();
+        }
+        _ => {}
+    }
+}
+
+async fn peertube_channel_action(app: &mut App, ca: &mut ChannelActionsScreen, action: String) {
+    let handle = peertube::parse_handle(&ca.channel.url).unwrap_or_else(|| ca.channel.url.clone());
+
+    match action.as_str() {
+        "Videos" => {
+            let tx = app.tx.clone();
+            let limit = app.config.youtube.no_of_search_results as u32;
+            let title = ca.channel.name.clone();
+            app.loading = Some(format!("Loading {}…", handle));
+            tokio::spawn(async move {
+                match peertube::fetch_channel_videos(&handle, limit).await {
+                    Ok(items) => {
+                        let _ = tx.send(AppEvent::VideoResults {
+                            items,
+                            context: ListContext::VideoActions,
+                            title,
+                            channel_load_more: None,
+                        });
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(e.to_string()));
+                    }
+                }
+            });
+        }
+        "Subscribe" => match peertube::subscribe(&handle) {
+            Ok(()) => {
+                ca.subscribed = true;
+                app.set_success(format!("Subscribed to {}", handle));
+                *app.current_screen_mut() = Screen::ChannelActions(ca.clone());
+            }
+            Err(e) => app.set_error(format!("Failed to subscribe: {e}")),
+        },
+        "Unsubscribe" => match peertube::unsubscribe(&handle) {
+            Ok(()) => {
+                ca.subscribed = false;
+                app.set_success(format!("Unsubscribed from {}", handle));
+                *app.current_screen_mut() = Screen::ChannelActions(ca.clone());
+            }
+            Err(e) => app.set_error(format!("Failed to unsubscribe: {e}")),
+        },
+        "Open in Browser" => {
+            let url = ca.channel.url.clone();
+            open_url_in_browser(&url);
+            app.set_info(format!("Opening: {}", url));
         }
         _ => {}
     }

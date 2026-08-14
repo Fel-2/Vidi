@@ -29,6 +29,15 @@ pub struct Video {
 pub struct Channel {
     pub name: String,
     pub url: String,
+    #[serde(default)]
+    pub avatar: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Platform {
+    #[default]
+    Youtube,
+    Peertube,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +105,7 @@ pub struct SubFeedLoadMore {
     /// playlist-end value to use on the *next* fetch (escalates each click).
     pub next_playlist_end: u32,
     pub label: String,
+    pub platform: Platform,
 }
 
 /// Config for the "Load More" button on channel tab / playlist lists.
@@ -116,7 +126,7 @@ pub struct ChannelTabLoadMore {
 
 #[derive(Debug, Clone)]
 pub enum ItemData {
-    YoutubeVideo(Video),
+    Video(Video),
     TwitchStream(TwitchStream),
     TwitchVod(TwitchVod),
     TwitchGame(TwitchGame),

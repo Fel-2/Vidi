@@ -56,6 +56,17 @@ pub const TWITCH_MENU_ITEMS: &[&str] = &[
     "Edit Subs",
 ];
 
+pub const PEERTUBE_MENU_ITEMS: &[&str] = &[
+    "Trending",
+    "Recently Added",
+    "Search",
+    "Subscription Feed",
+    "Subscribed Channels",
+    "Explore Channels",
+    "Edit Subs",
+    "Change Instance",
+];
+
 pub const CHANNEL_TABS: &[&str] = &["Videos", "Shorts", "Streams", "Playlists", "Search"];
 
 pub const VIDEO_ACTION_ITEMS: &[&str] = &[
@@ -99,6 +110,19 @@ pub fn channel_action_items(subscribed: bool, show_shorts: bool) -> Vec<String> 
         .to_string(),
     );
     items
+}
+
+pub fn peertube_channel_action_items(subscribed: bool) -> Vec<String> {
+    vec![
+        "Videos".to_string(),
+        if subscribed {
+            "Unsubscribe".to_string()
+        } else {
+            "Subscribe".to_string()
+        },
+        "Open in Browser".to_string(),
+        "Back".to_string(),
+    ]
 }
 
 pub fn twitch_stream_action_items(followed: bool) -> Vec<String> {
@@ -254,6 +278,7 @@ fn screen_emoji_and_title(screen: &Screen) -> (&'static str, &'static str) {
         Screen::ModeSelect { .. } => ("🎬", "Mode Select"),
         Screen::YoutubeMenu { .. } => ("📺", "YouTube"),
         Screen::TwitchMenu { .. } => ("🟣", "Twitch"),
+        Screen::PeertubeMenu { .. } => ("🐙", "PeerTube"),
         Screen::List(_) => ("📋", "List"),
         Screen::VideoActions(_) => ("🎬", "Video Actions"),
         Screen::QualitySelect(_) => ("🎚️", "Select Quality"),
@@ -273,6 +298,7 @@ fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
         Screen::ModeSelect { selected } => menus::render_mode_select(f, area, selected),
         Screen::YoutubeMenu { selected } => menus::render_youtube_menu(f, area, selected),
         Screen::TwitchMenu { selected } => menus::render_twitch_menu(f, area, selected),
+        Screen::PeertubeMenu { selected } => menus::render_peertube_menu(f, area, selected),
         Screen::List(_) => {
             let ls = match app.current_screen().clone() {
                 Screen::List(ls) => ls,
@@ -282,6 +308,27 @@ fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
         }
         Screen::VideoActions(ref va) => actions::render_video_actions(f, area, va),
         Screen::QualitySelect(ref qs) => actions::render_quality_select(f, area, qs),
+        Screen::ChannelActions(ref ca) if ca.platform == crate::models::Platform::Peertube => {
+            let labels: Vec<String> = vec![
+                "📹  Videos".to_string(),
+                if ca.subscribed {
+                    "💔  Unsubscribe".to_string()
+                } else {
+                    "➕  Subscribe".to_string()
+                },
+                "🌐  Open in Browser".to_string(),
+                "←  Back".to_string(),
+            ];
+            menus::render_action_menu_string(
+                f,
+                area,
+                &format!("🐙  Channel: {}", ca.channel.name),
+                &labels,
+                ca.selected,
+                PEACH,
+                PEACH,
+            );
+        }
         Screen::ChannelActions(ref ca) => {
             // Keep in lockstep with channel_action_items (same Shorts gate).
             let mut labels: Vec<String> = CHANNEL_TABS_DISPLAY
@@ -400,14 +447,15 @@ fn render_statusbar(f: &mut Frame, app: &App, area: Rect) {
 
 fn keybind_hints(screen: &Screen) -> String {
     match screen {
-        Screen::ModeSelect { .. } | Screen::YoutubeMenu { .. } | Screen::TwitchMenu { .. } => {
-            "↑↓ navigate   ↵ select   ? help   q quit".to_string()
-        }
+        Screen::ModeSelect { .. }
+        | Screen::YoutubeMenu { .. }
+        | Screen::TwitchMenu { .. }
+        | Screen::PeertubeMenu { .. } => "↑↓ navigate   ↵ select   ? help   q quit".to_string(),
         Screen::List(ls) if ls.filter_active => {
             "Type to filter   ↵ keep   ⎋ clear   ^W word   ^U line".to_string()
         }
         Screen::List(ls) => {
-            let refresh = if ls.title == "Subscription Feed" {
+            let refresh = if ls.title == "Subscription Feed" || ls.title == "PeerTube Feed" {
                 "   r refresh"
             } else {
                 ""
@@ -438,7 +486,7 @@ pub(crate) fn item_style_for_data(data: &ItemData) -> Style {
                 Style::default().fg(OVERLAY)
             }
         }
-        ItemData::YoutubeVideo(_) => Style::default().fg(TEXT),
+        ItemData::Video(_) => Style::default().fg(TEXT),
         ItemData::TwitchVod(_) => Style::default().fg(SUBTEXT),
         ItemData::TwitchGame(_) => Style::default().fg(MAUVE),
         ItemData::Channel(_) => Style::default().fg(SUBTEXT),

@@ -1,12 +1,15 @@
-//! Top-level menu screens: mode select, YouTube menu, Twitch menu.
+//! Top-level menu screens: mode select, YouTube, Twitch and PeerTube menus.
 
 use crate::app::{
     App, AppEvent, ListContext, ListScreen, Screen, SearchContext, SearchInputScreen,
 };
-use crate::models::{ItemData, ListItem, SubFeedLoadMore};
-use crate::ui::{TWITCH_MENU_ITEMS, YOUTUBE_MENU_ITEMS};
-use crate::{config, player, twitch, youtube};
+use crate::models::{ItemData, ListItem, Platform, SubFeedLoadMore};
+use crate::ui::{PEERTUBE_MENU_ITEMS, TWITCH_MENU_ITEMS, YOUTUBE_MENU_ITEMS};
+use crate::{config, peertube, player, twitch, youtube};
 use crossterm::event::{self, KeyCode};
+
+pub(super) const YOUTUBE_FEED_TITLE: &str = "Subscription Feed";
+pub(super) const PEERTUBE_FEED_TITLE: &str = "PeerTube Feed";
 
 pub(super) async fn handle_mode_select(app: &mut App, key: event::KeyEvent, selected: usize) {
     match key.code {
@@ -15,12 +18,13 @@ pub(super) async fn handle_mode_select(app: &mut App, key: event::KeyEvent, sele
             *app.current_screen_mut() = Screen::ModeSelect { selected: new };
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            let new = (selected + 1).min(1);
+            let new = (selected + 1).min(2);
             *app.current_screen_mut() = Screen::ModeSelect { selected: new };
         }
         KeyCode::Enter => match selected {
             0 => app.push_screen(Screen::YoutubeMenu { selected: 0 }),
             1 => app.push_screen(Screen::TwitchMenu { selected: 0 }),
+            2 => open_peertube(app),
             _ => {}
         },
         KeyCode::Esc | KeyCode::Char('q') => {
@@ -63,9 +67,9 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
             tokio::spawn(async move {
                 match youtube::fetch_trending(limit).await {
                     Ok(items) => {
-                        let _ = tx.send(AppEvent::YoutubeResults {
+                        let _ = tx.send(AppEvent::VideoResults {
                             items,
-                            context: ListContext::YoutubeVideoActions,
+                            context: ListContext::VideoActions,
                             title: "Trending".to_string(),
                             channel_load_more: None,
                         });
@@ -97,6 +101,7 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
                     subs,
                     next_playlist_end: 20,
                     label: "── Load More ──".to_string(),
+                    platform: Platform::Youtube,
                 })
             };
 
@@ -107,6 +112,7 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
                 let _ = app.tx.send(AppEvent::SubFeedResults {
                     items,
                     load_more: make_load_more(subs.clone()),
+                    title: YOUTUBE_FEED_TITLE.to_string(),
                 });
             }
 
@@ -127,7 +133,11 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
             tokio::spawn(async move {
                 match youtube::fetch_channels().await {
                     Ok(channels) => {
-                        let _ = tx.send(AppEvent::ChannelList(channels));
+                        let _ = tx.send(AppEvent::ChannelList {
+                            channels,
+                            context: ListContext::SelectChannelToBrowse,
+                            title: "Channels".to_string(),
+                        });
                     }
                     Err(e) => {
                         let _ = tx.send(AppEvent::Error(e.to_string()));
@@ -151,7 +161,7 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
                 app.set_error("No recent videos.");
                 return;
             }
-            let ls = App::make_video_list("Recent", videos, ListContext::YoutubeVideoActions);
+            let ls = App::make_video_list("Recent", videos, ListContext::VideoActions);
             app.push_screen(Screen::List(ls));
         }
         "Saved Videos" => {
@@ -162,7 +172,7 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
                 return;
             }
             videos.reverse();
-            let ls = App::make_video_list("Saved Videos", videos, ListContext::YoutubeVideoActions);
+            let ls = App::make_video_list("Saved Videos", videos, ListContext::VideoActions);
             app.push_screen(Screen::List(ls));
         }
         "Queue" => {
@@ -222,11 +232,21 @@ pub(super) fn spawn_feed_fetch(
                     subs,
                     next_playlist_end: 20,
                     label: "── Load More ──".to_string(),
+                    platform: Platform::Youtube,
                 });
+                let title = YOUTUBE_FEED_TITLE.to_string();
                 if in_place {
-                    let _ = tx.send(AppEvent::SubFeedRefreshed { items, load_more });
+                    let _ = tx.send(AppEvent::SubFeedRefreshed {
+                        items,
+                        load_more,
+                        title,
+                    });
                 } else {
-                    let _ = tx.send(AppEvent::SubFeedResults { items, load_more });
+                    let _ = tx.send(AppEvent::SubFeedResults {
+                        items,
+                        load_more,
+                        title,
+                    });
                 }
             }
             Err(e) => {
@@ -350,4 +370,210 @@ async fn twitch_menu_action(app: &mut App, selected: usize) {
         }
         _ => {}
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PeerTube menu
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub(super) fn open_peertube(app: &mut App) {
+    if app.config.peertube.instance.trim().is_empty() {
+        app.push_screen(Screen::SearchInput(instance_input_screen(
+            config::DEFAULT_PEERTUBE_INSTANCE,
+        )));
+    } else {
+        app.push_screen(Screen::PeertubeMenu { selected: 0 });
+    }
+}
+
+pub(super) fn instance_input_screen(prefill: &str) -> SearchInputScreen {
+    SearchInputScreen {
+        prompt: "PeerTube instance (↵ to accept)".to_string(),
+        input: prefill.to_string(),
+        context: SearchContext::PeertubeInstance,
+    }
+}
+
+pub(super) async fn handle_peertube_menu(app: &mut App, key: event::KeyEvent, selected: usize) {
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            let new = selected.saturating_sub(1);
+            *app.current_screen_mut() = Screen::PeertubeMenu { selected: new };
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            let new = (selected + 1).min(PEERTUBE_MENU_ITEMS.len() - 1);
+            *app.current_screen_mut() = Screen::PeertubeMenu { selected: new };
+        }
+        KeyCode::Enter => {
+            peertube_menu_action(app, selected).await;
+        }
+        KeyCode::Esc => {
+            app.pop_screen();
+        }
+        _ => {}
+    }
+}
+
+async fn peertube_menu_action(app: &mut App, selected: usize) {
+    let instance = app.config.peertube.instance.clone();
+    let limit = app.config.youtube.no_of_search_results as u32;
+
+    match PEERTUBE_MENU_ITEMS[selected] {
+        "Trending" | "Recently Added" => {
+            let trending = PEERTUBE_MENU_ITEMS[selected] == "Trending";
+            let title = if trending {
+                "Trending"
+            } else {
+                "Recently Added"
+            };
+            let tx = app.tx.clone();
+            app.loading = Some(format!("Fetching {}…", title.to_lowercase()));
+            tokio::spawn(async move {
+                let result = if trending {
+                    peertube::fetch_trending(&instance, limit).await
+                } else {
+                    peertube::fetch_recent(&instance, limit).await
+                };
+                match result {
+                    Ok(items) => {
+                        let _ = tx.send(AppEvent::VideoResults {
+                            items,
+                            context: ListContext::VideoActions,
+                            title: format!("PeerTube {}", title),
+                            channel_load_more: None,
+                        });
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(e.to_string()));
+                    }
+                }
+            });
+        }
+        "Search" => {
+            app.push_screen(Screen::SearchInput(SearchInputScreen {
+                prompt: "PeerTube Search".to_string(),
+                input: String::new(),
+                context: SearchContext::PeertubeSearch,
+            }));
+        }
+        "Subscription Feed" => {
+            let subs = peertube::load_subs();
+            if subs.is_empty() {
+                app.set_error(
+                    "No PeerTube subscriptions. Add channel@instance lines to ~/.config/vidi/peertube_subs",
+                );
+                return;
+            }
+
+            let cached = peertube::load_feed_cache_with_age();
+            if let Some((items, _)) = cached.clone() {
+                let _ = app.tx.send(AppEvent::SubFeedResults {
+                    items,
+                    load_more: peertube_load_more(subs.clone(), 20),
+                    title: PEERTUBE_FEED_TITLE.to_string(),
+                });
+            }
+            if matches!(cached, Some((_, true))) {
+                return;
+            }
+            let had_cache = cached.is_some();
+            if !had_cache {
+                app.loading = Some("Fetching PeerTube feed…".to_string());
+            }
+            spawn_peertube_feed_fetch(app.tx.clone(), subs, 10, had_cache, had_cache);
+        }
+        "Subscribed Channels" => {
+            let subs = peertube::load_subs();
+            if subs.is_empty() {
+                app.set_error("No PeerTube subscriptions yet.");
+                return;
+            }
+            let tx = app.tx.clone();
+            app.loading = Some("Loading channels…".to_string());
+            tokio::spawn(async move {
+                let mut channels = Vec::new();
+                for handle in subs {
+                    match peertube::fetch_channel_meta(&handle).await {
+                        Ok(ch) => channels.push(ch),
+                        Err(_) => channels.push(crate::models::Channel {
+                            name: handle.clone(),
+                            url: peertube::channel_url(&handle),
+                            avatar: None,
+                        }),
+                    }
+                }
+                let _ = tx.send(AppEvent::ChannelList {
+                    channels,
+                    context: ListContext::SelectPeertubeChannel,
+                    title: "PeerTube Channels".to_string(),
+                });
+            });
+        }
+        "Explore Channels" => {
+            app.push_screen(Screen::SearchInput(SearchInputScreen {
+                prompt: "Explore PeerTube Channels".to_string(),
+                input: String::new(),
+                context: SearchContext::PeertubeExploreChannels,
+            }));
+        }
+        "Edit Subs" => {
+            let path = config::peertube_subs_file();
+            let editor = app.config.youtube.editor.clone();
+            let _ = player::launch_external(&[&editor, &path.to_string_lossy()]).await;
+        }
+        "Change Instance" => {
+            let current = if instance.is_empty() {
+                config::DEFAULT_PEERTUBE_INSTANCE.to_string()
+            } else {
+                instance
+            };
+            app.push_screen(Screen::SearchInput(instance_input_screen(&current)));
+        }
+        _ => {}
+    }
+}
+
+pub(super) fn peertube_load_more(subs: Vec<String>, next: u32) -> Option<SubFeedLoadMore> {
+    Some(SubFeedLoadMore {
+        subs,
+        next_playlist_end: next,
+        label: "── Load More ──".to_string(),
+        platform: Platform::Peertube,
+    })
+}
+
+pub(super) fn spawn_peertube_feed_fetch(
+    tx: tokio::sync::mpsc::UnboundedSender<AppEvent>,
+    subs: Vec<String>,
+    per_channel: u32,
+    in_place: bool,
+    silent_errors: bool,
+) {
+    tokio::spawn(async move {
+        match peertube::fetch_subscription_feed(subs.clone(), per_channel, 8).await {
+            Ok(items) => {
+                peertube::save_feed_cache(&items);
+                let load_more = peertube_load_more(subs, per_channel * 2);
+                let title = PEERTUBE_FEED_TITLE.to_string();
+                if in_place {
+                    let _ = tx.send(AppEvent::SubFeedRefreshed {
+                        items,
+                        load_more,
+                        title,
+                    });
+                } else {
+                    let _ = tx.send(AppEvent::SubFeedResults {
+                        items,
+                        load_more,
+                        title,
+                    });
+                }
+            }
+            Err(e) => {
+                if !silent_errors {
+                    let _ = tx.send(AppEvent::Error(e.to_string()));
+                }
+            }
+        }
+    });
 }

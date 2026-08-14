@@ -104,11 +104,16 @@ pub fn mpv_queue_args(urls: &[String], quality: &str) -> Vec<String> {
     args
 }
 
+pub fn is_youtube_url(url: &str) -> bool {
+    let u = url.to_lowercase();
+    u.contains("youtube.com") || u.contains("youtu.be")
+}
+
 /// mpv arguments that make yt-dlp mark SponsorBlock segments as chapters
 /// (visible and skippable in mpv's OSC). Empty categories → no args.
-pub fn mpv_sponsorblock_args(categories: &str) -> Vec<String> {
+pub fn mpv_sponsorblock_args(categories: &str, url: &str) -> Vec<String> {
     let cats = categories.trim();
-    if cats.is_empty() {
+    if cats.is_empty() || !is_youtube_url(url) {
         return vec![];
     }
     vec![format!(
@@ -119,9 +124,9 @@ pub fn mpv_sponsorblock_args(categories: &str) -> Vec<String> {
 
 /// yt-dlp arguments that cut SponsorBlock segments out of downloads.
 /// Empty categories → no args.
-pub fn ytdlp_sponsorblock_args(categories: &str) -> Vec<String> {
+pub fn ytdlp_sponsorblock_args(categories: &str, url: &str) -> Vec<String> {
     let cats = categories.trim();
-    if cats.is_empty() {
+    if cats.is_empty() || !is_youtube_url(url) {
         return vec![];
     }
     vec!["--sponsorblock-remove".to_string(), cats.to_string()]

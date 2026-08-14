@@ -1,6 +1,6 @@
 # vidi
 
-A terminal UI for YouTube and Twitch, written in Rust.
+A terminal UI for YouTube, Twitch and PeerTube, written in Rust.
 
 ```
 ██╗░░██╗██╗██████╗░██╗
@@ -37,6 +37,14 @@ A terminal UI for YouTube and Twitch, written in Rust.
 - ➕ Follow / unfollow channels in-app (writes `twitch_subs`)
 - 🎬 VOD browsing via fast GQL (Past Broadcasts / Highlights / Uploads / Premieres), with view counts, durations and thumbnails — for subscribed channels or any stream you find; resumes where you left off; download with audio/quality options
 - 💬 Live chat viewer with real Twitch name colours and broadcaster/mod/vip/sub badges (auto-reconnects)
+
+**PeerTube**
+- 🌐 Pick your instance on first use (prefilled, saved to `peertube.conf`, changeable any time from the menu)
+- 🔥 Trending and 🆕 Recently Added from your instance
+- 🔍 Search across the whole fediverse via [SepiaSearch](https://sepiasearch.org)
+- 📡 Subscription feed fetched **straight from each channel's own instance**, so new uploads show up before they federate (parallel fetch, cached startup with background refresh)
+- 🔎 Explore channels and subscribe/unsubscribe in-app (writes `peertube_subs`)
+- ▶️ Watch, download, save, queue and resume exactly like YouTube videos
 
 **General**
 - Inline thumbnail previews (kitty / Ghostty graphics protocol, or iTerm2 / WezTerm)
@@ -96,6 +104,8 @@ Config files are created automatically on first run:
 | `~/.config/vidi/subscriptions` | YouTube channel URLs (one per line) |
 | `~/.config/vidi/twitch.conf` | Twitch player and quality settings |
 | `~/.config/vidi/twitch_subs` | Twitch usernames (one per line) |
+| `~/.config/vidi/peertube.conf` | PeerTube instance (`INSTANCE`, optional `SEARCH_INSTANCE`) |
+| `~/.config/vidi/peertube_subs` | PeerTube channels as `channel@instance` (one per line) |
 | `~/.config/vidi/custom_playlists.json` | Custom playlist URLs |
 
 In `subscriptions`, each line is a channel URL, optionally followed by whitespace
@@ -103,6 +113,10 @@ and a display name (`https://www.youtube.com/channel/UC…  My Channel`). Provid
 the name inline lets the Channels view skip the per-channel `yt-dlp` lookup, so it
 loads instantly. Lines without a name are resolved once and cached in
 `~/.cache/vidi/channel_names.json`.
+
+`peertube_subs` stores each channel with its home instance (`blender_studio@video.blender.org`);
+channel URLs work too and are normalised on read. Because the handle carries the origin,
+the feed queries each channel's own instance directly instead of waiting for federation.
 
 To annotate an existing URL-only file in place, run:
 

@@ -4,8 +4,8 @@ use crate::app::{
     App, AppEvent, ChannelActionsScreen, ListContext, ListScreen, Screen, SearchContext,
     SearchInputScreen, TwitchStreamActionsScreen, TwitchVodActionsScreen, VideoActionsScreen,
 };
-use crate::models::{ChannelTabLoadMore, ItemData, ListItem, SubFeedLoadMore, Video};
-use crate::{config, player, preview, twitch, youtube};
+use crate::models::{ChannelTabLoadMore, ItemData, ListItem, Platform, SubFeedLoadMore, Video};
+use crate::{config, peertube, player, preview, twitch, youtube};
 use crossterm::event::{self, KeyCode};
 
 /// Build the VOD-type chooser (Archives/Highlights/…) for a channel login.
@@ -185,17 +185,8 @@ pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: Lis
             ls.filter_active = true;
             *app.current_screen_mut() = Screen::List(ls);
         }
-        KeyCode::Char('r') if ls.title == "Subscription Feed" => {
-            let subs = match &ls.load_more {
-                Some(lm) => lm.subs.clone(),
-                None => youtube::load_subscriptions(),
-            };
-            if subs.is_empty() {
-                app.set_error("No YouTube subscriptions found.");
-            } else {
-                app.set_info("Refreshing feed…");
-                super::menus::spawn_feed_fetch(app.tx.clone(), subs, true, false);
-            }
+        KeyCode::Char('r') if is_feed_screen(&ls) => {
+            refresh_feed(app, &ls);
             *app.current_screen_mut() = Screen::List(ls);
         }
         KeyCode::Backspace => {
@@ -236,7 +227,7 @@ pub(super) async fn handle_list(app: &mut App, key: event::KeyEvent, mut ls: Lis
         }
         KeyCode::Tab => {
             let selected_data = ls.filtered_items().get(ls.selected).map(|i| i.data.clone());
-            if let Some(ItemData::YoutubeVideo(v)) = selected_data {
+            if let Some(ItemData::Video(v)) = selected_data {
                 if matches!(ls.context, ListContext::Queue) {
                     app.queue.retain(|q| q.id != v.id);
                     app.set_info(format!("Removed from queue: {}", v.title));
@@ -264,7 +255,7 @@ async fn item_shortcut(app: &mut App, code: KeyCode, item: ListItem) {
     };
 
     match item.data {
-        ItemData::YoutubeVideo(video) => match code {
+        ItemData::Video(video) => match code {
             KeyCode::Char('p') => {
                 super::actions::video_action_execute(app, &video, "Watch").await;
             }
@@ -368,7 +359,7 @@ fn execute_load_more(app: &mut App, ls: &ListScreen, lm: &SubFeedLoadMore) {
         .items
         .iter()
         .filter_map(|i| {
-            if let ItemData::YoutubeVideo(v) = &i.data {
+            if let ItemData::Video(v) = &i.data {
                 Some(v.clone())
             } else {
                 None
@@ -381,24 +372,39 @@ fn execute_load_more(app: &mut App, ls: &ListScreen, lm: &SubFeedLoadMore) {
         playlist_end
     ));
 
+    let platform = lm.platform;
+    let title = ls.title.clone();
+
     // Determine the next Load More config (escalate: 30 → 100 → none).
     let next_lm = if playlist_end < 100 {
         Some(SubFeedLoadMore {
             subs: subs.clone(),
-            next_playlist_end: 50,
+            next_playlist_end: if platform == Platform::Peertube {
+                (playlist_end * 2).min(100)
+            } else {
+                50
+            },
             label: "── Load More ──".to_string(),
+            platform,
         })
     } else {
         None // no further pages
     };
 
     tokio::spawn(async move {
-        match youtube::fetch_subscription_feed(subs, playlist_end, 8, None).await {
+        let fetched = match platform {
+            Platform::Youtube => {
+                youtube::fetch_subscription_feed(subs, playlist_end, 8, None).await
+            }
+            Platform::Peertube => peertube::fetch_subscription_feed(subs, playlist_end, 8).await,
+        };
+        match fetched {
             Ok(new_items) => {
                 let _ = tx.send(AppEvent::SubFeedMoreResults {
                     new_items,
                     existing_items: existing,
                     load_more: next_lm,
+                    title,
                 });
             }
             Err(e) => {
@@ -408,12 +414,42 @@ fn execute_load_more(app: &mut App, ls: &ListScreen, lm: &SubFeedLoadMore) {
     });
 }
 
+fn is_feed_screen(ls: &ListScreen) -> bool {
+    ls.title == super::menus::YOUTUBE_FEED_TITLE || ls.title == super::menus::PEERTUBE_FEED_TITLE
+}
+
+fn refresh_feed(app: &mut App, ls: &ListScreen) {
+    let platform = ls
+        .load_more
+        .as_ref()
+        .map(|lm| lm.platform)
+        .unwrap_or(Platform::Youtube);
+    let subs = match &ls.load_more {
+        Some(lm) if !lm.subs.is_empty() => lm.subs.clone(),
+        _ => match platform {
+            Platform::Youtube => youtube::load_subscriptions(),
+            Platform::Peertube => peertube::load_subs(),
+        },
+    };
+    if subs.is_empty() {
+        app.set_error("No subscriptions found.");
+        return;
+    }
+    app.set_info("Refreshing feed…");
+    match platform {
+        Platform::Youtube => super::menus::spawn_feed_fetch(app.tx.clone(), subs, true, false),
+        Platform::Peertube => {
+            super::menus::spawn_peertube_feed_fetch(app.tx.clone(), subs, 10, true, false)
+        }
+    }
+}
+
 fn execute_channel_load_more(app: &mut App, ls: &ListScreen, clm: &ChannelTabLoadMore) {
     let existing: Vec<Video> = ls
         .items
         .iter()
         .filter_map(|i| {
-            if let ItemData::YoutubeVideo(v) = &i.data {
+            if let ItemData::Video(v) = &i.data {
                 Some(v.clone())
             } else {
                 None
@@ -457,8 +493,8 @@ fn execute_channel_load_more(app: &mut App, ls: &ListScreen, clm: &ChannelTabLoa
 
 async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListContext) {
     match context {
-        ListContext::YoutubeVideoActions => {
-            if let ItemData::YoutubeVideo(video) = item.data {
+        ListContext::VideoActions => {
+            if let ItemData::Video(video) = item.data {
                 app.push_screen(Screen::VideoActions(VideoActionsScreen {
                     video,
                     selected: 0,
@@ -536,6 +572,19 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
                     channel: ch,
                     selected: 0,
                     subscribed,
+                    platform: Platform::Youtube,
+                }));
+            }
+        }
+
+        ListContext::SelectPeertubeChannel => {
+            if let ItemData::Channel(ch) = item.data {
+                let subscribed = peertube::is_subscribed(&ch.url);
+                app.push_screen(Screen::ChannelActions(ChannelActionsScreen {
+                    channel: ch,
+                    selected: 0,
+                    subscribed,
+                    platform: Platform::Peertube,
                 }));
             }
         }
@@ -550,9 +599,9 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
                 tokio::spawn(async move {
                     match youtube::fetch_playlist(&url, limit).await {
                         Ok(items) => {
-                            let _ = tx.send(AppEvent::YoutubeResults {
+                            let _ = tx.send(AppEvent::VideoResults {
                                 items,
-                                context: ListContext::YoutubeVideoActions,
+                                context: ListContext::VideoActions,
                                 title: name,
                                 channel_load_more: None,
                             });
@@ -575,9 +624,9 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
                     let (sp, q) = youtube::parse_search_filter(&query_clone);
                     match youtube::fetch_search(&q, &sp, limit).await {
                         Ok(items) => {
-                            let _ = tx.send(AppEvent::YoutubeResults {
+                            let _ = tx.send(AppEvent::VideoResults {
                                 items,
-                                context: ListContext::YoutubeVideoActions,
+                                context: ListContext::VideoActions,
                                 title: format!("Search: {}", query_clone),
                                 channel_load_more: None,
                             });
@@ -663,9 +712,12 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
                 }
                 let urls: Vec<String> = app.queue.iter().map(|v| v.url.clone()).collect();
                 let mut args = player::mpv_queue_args(&urls, &app.config.youtube.video_quality);
-                args.extend(player::mpv_sponsorblock_args(
-                    &app.config.youtube.sponsorblock,
-                ));
+                if let Some(yt) = urls.iter().find(|u| player::is_youtube_url(u)) {
+                    args.extend(player::mpv_sponsorblock_args(
+                        &app.config.youtube.sponsorblock,
+                        yt,
+                    ));
+                }
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = player::launch_external(&args_str).await;
                 if app.config.youtube.update_recent {
@@ -681,7 +733,7 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
                 app.queue.clear();
                 app.set_success("Queue cleared.");
             }
-            ItemData::YoutubeVideo(video) => {
+            ItemData::Video(video) => {
                 app.push_screen(Screen::VideoActions(VideoActionsScreen {
                     video,
                     selected: 0,
@@ -709,7 +761,7 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
         }
 
         ListContext::ChannelTab(channel_url) => {
-            if let ItemData::YoutubeVideo(video) = item.data {
+            if let ItemData::Video(video) = item.data {
                 app.push_screen(Screen::VideoActions(VideoActionsScreen {
                     video,
                     selected: 0,
@@ -747,7 +799,7 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
                                 page_size: limit,
                                 label: "── Load More ──".to_string(),
                             });
-                            let _ = tx.send(AppEvent::YoutubeResults {
+                            let _ = tx.send(AppEvent::VideoResults {
                                 items,
                                 context: ListContext::ChannelTab(channel_url_for_clm),
                                 title: tab_name,

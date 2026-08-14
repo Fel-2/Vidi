@@ -1,7 +1,7 @@
 //! Search input screen and search execution per context.
 
 use crate::app::{App, AppEvent, ListContext, Screen, SearchContext, SearchInputScreen};
-use crate::youtube;
+use crate::{config, peertube, youtube};
 use crossterm::event::{self, KeyCode};
 
 pub(super) async fn handle_search_input(
@@ -63,9 +63,9 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
                 let (sp, query_term) = youtube::parse_search_filter(&q);
                 match youtube::fetch_search(&query_term, &sp, limit).await {
                     Ok(items) => {
-                        let _ = tx.send(AppEvent::YoutubeResults {
+                        let _ = tx.send(AppEvent::VideoResults {
                             items,
-                            context: ListContext::YoutubeVideoActions,
+                            context: ListContext::VideoActions,
                             title: format!("Search: {}", q),
                             channel_load_more: None,
                         });
@@ -101,7 +101,11 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
             tokio::spawn(async move {
                 match youtube::search_channels(&query, 20).await {
                     Ok(channels) => {
-                        let _ = tx.send(AppEvent::ChannelList(channels));
+                        let _ = tx.send(AppEvent::ChannelList {
+                            channels,
+                            context: ListContext::SelectChannelToBrowse,
+                            title: "Channels".to_string(),
+                        });
                     }
                     Err(e) => {
                         let _ = tx.send(AppEvent::Error(e.to_string()));
@@ -122,9 +126,9 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
                 );
                 match youtube::fetch_playlist(&url, limit).await {
                     Ok(items) => {
-                        let _ = tx.send(AppEvent::YoutubeResults {
+                        let _ = tx.send(AppEvent::VideoResults {
                             items,
-                            context: ListContext::YoutubeVideoActions,
+                            context: ListContext::VideoActions,
                             title: format!("Playlists: {}", q),
                             channel_load_more: None,
                         });
@@ -134,6 +138,71 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
                     }
                 }
             });
+        }
+
+        SearchContext::PeertubeSearch => {
+            let tx = app.tx.clone();
+            let limit = app.config.youtube.no_of_search_results as u32;
+            let index = app.config.peertube.search_instance.clone();
+            let q = input.clone();
+            app.loading = Some(format!("Searching PeerTube: {}…", input));
+            tokio::spawn(async move {
+                match peertube::search_videos(&index, &q, limit).await {
+                    Ok(items) => {
+                        let _ = tx.send(AppEvent::VideoResults {
+                            items,
+                            context: ListContext::VideoActions,
+                            title: format!("PeerTube: {}", q),
+                            channel_load_more: None,
+                        });
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(e.to_string()));
+                    }
+                }
+            });
+        }
+
+        SearchContext::PeertubeExploreChannels => {
+            let tx = app.tx.clone();
+            let index = app.config.peertube.search_instance.clone();
+            let q = input.clone();
+            app.loading = Some(format!("Searching channels: {}…", input));
+            tokio::spawn(async move {
+                match peertube::search_channels(&index, &q, 30).await {
+                    Ok(channels) => {
+                        let _ = tx.send(AppEvent::ChannelList {
+                            channels,
+                            context: ListContext::SelectPeertubeChannel,
+                            title: format!("PeerTube Channels: {}", q),
+                        });
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(e.to_string()));
+                    }
+                }
+            });
+        }
+
+        SearchContext::PeertubeInstance => {
+            let instance = peertube::normalize_instance(&input);
+            if instance.is_empty() {
+                app.set_error("Instance cannot be empty.");
+                return;
+            }
+            match config::save_peertube_instance(&instance) {
+                Ok(()) => {
+                    app.config.peertube.instance = instance.clone();
+                    app.set_success(format!("PeerTube instance: {}", instance));
+                }
+                Err(e) => {
+                    app.set_error(format!("Could not save the instance: {}", e));
+                    app.config.peertube.instance = instance;
+                }
+            }
+            if !matches!(app.current_screen(), Screen::PeertubeMenu { .. }) {
+                app.push_screen(Screen::PeertubeMenu { selected: 0 });
+            }
         }
 
         SearchContext::ImportSubscriptions => match crate::subs_import::import_file(input.trim()) {
@@ -160,7 +229,7 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
             tokio::spawn(async move {
                 match youtube::fetch_playlist(&url, limit).await {
                     Ok(items) => {
-                        let _ = tx.send(AppEvent::YoutubeResults {
+                        let _ = tx.send(AppEvent::VideoResults {
                             items,
                             context: ListContext::ChannelTab(channel_url_clone),
                             title,

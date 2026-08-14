@@ -518,7 +518,11 @@ pub async fn search_channels(query: &str, limit: usize) -> Result<Vec<Channel>> 
                         .and_then(|i| i.as_str())
                         .map(|id| format!("https://www.youtube.com/channel/{}", id))
                 })?;
-            Some(Channel { name, url })
+            Some(Channel {
+                name,
+                url,
+                avatar: None,
+            })
         })
         .take(limit)
         .collect();

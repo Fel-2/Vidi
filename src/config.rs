@@ -81,6 +81,28 @@ impl Default for TwitchConfig {
 }
 
 // ---------------------------------------------------------------------------
+// PeerTube config
+// ---------------------------------------------------------------------------
+
+pub const DEFAULT_PEERTUBE_INSTANCE: &str = "https://makertube.net";
+pub const SEPIASEARCH_URL: &str = "https://sepiasearch.org";
+
+#[derive(Debug, Clone)]
+pub struct PeertubeConfig {
+    pub instance: String,
+    pub search_instance: String,
+}
+
+impl Default for PeertubeConfig {
+    fn default() -> Self {
+        Self {
+            instance: String::new(),
+            search_instance: SEPIASEARCH_URL.into(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unified config
 // ---------------------------------------------------------------------------
 
@@ -106,6 +128,7 @@ pub struct Keybindings {
 pub struct Config {
     pub youtube: YoutubeConfig,
     pub twitch: TwitchConfig,
+    pub peertube: PeertubeConfig,
     pub keys: Keybindings,
 }
 
@@ -178,6 +201,18 @@ pub fn twitch_config_file() -> PathBuf {
 
 pub fn twitch_subs_file() -> PathBuf {
     youtube_config_dir().join("twitch_subs")
+}
+
+pub fn peertube_config_file() -> PathBuf {
+    youtube_config_dir().join("peertube.conf")
+}
+
+pub fn peertube_subs_file() -> PathBuf {
+    youtube_config_dir().join("peertube_subs")
+}
+
+pub fn peertube_feed_cache_file() -> PathBuf {
+    youtube_cache_dir().join("peertube_feed_cache.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +337,52 @@ pub fn load_twitch_config() -> Result<TwitchConfig> {
     Ok(cfg)
 }
 
+pub fn load_peertube_config() -> Result<PeertubeConfig> {
+    let mut cfg = PeertubeConfig::default();
+    let path = peertube_config_file();
+    if !path.exists() {
+        return Ok(cfg);
+    }
+    let content = std::fs::read_to_string(&path)?;
+    if let Some(v) = parse_kv(&content, "INSTANCE") {
+        cfg.instance = v;
+    }
+    if let Some(v) = parse_kv(&content, "SEARCH_INSTANCE") {
+        if !v.is_empty() {
+            cfg.search_instance = v;
+        }
+    }
+    Ok(cfg)
+}
+
+pub fn save_peertube_instance(instance: &str) -> Result<()> {
+    let path = peertube_config_file();
+    std::fs::create_dir_all(youtube_config_dir())?;
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let line = format!("INSTANCE: {}", instance);
+
+    let mut out: Vec<String> = Vec::new();
+    let mut replaced = false;
+    for l in existing.lines() {
+        if parse_kv(l, "INSTANCE").is_some() {
+            out.push(line.clone());
+            replaced = true;
+        } else {
+            out.push(l.to_string());
+        }
+    }
+    if !replaced {
+        if out.is_empty() {
+            out.push("# vidi PeerTube configuration".to_string());
+        }
+        out.push(line);
+    }
+    let mut content = out.join("\n");
+    content.push('\n');
+    std::fs::write(path, content)?;
+    Ok(())
+}
+
 /// Read a single-char keybinding override from vidi.conf content.
 fn parse_key(content: &str, key: &str) -> Option<char> {
     parse_kv(content, key).and_then(|v| v.trim().chars().next())
@@ -327,6 +408,7 @@ pub fn load_config() -> Result<Config> {
     Ok(Config {
         youtube: load_youtube_config()?,
         twitch: load_twitch_config()?,
+        peertube: load_peertube_config().unwrap_or_default(),
         keys: load_keybindings(),
     })
 }

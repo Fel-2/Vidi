@@ -18,7 +18,7 @@ use crossterm::event::{self, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseE
 pub fn handle_app_event(app: &mut App, event: AppEvent) {
     let show_shorts = app.config.youtube.show_shorts;
     match event {
-        AppEvent::YoutubeResults {
+        AppEvent::VideoResults {
             items,
             context,
             title,
@@ -68,7 +68,11 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             app.push_screen(Screen::List(ls));
         }
 
-        AppEvent::ChannelList(channels) => {
+        AppEvent::ChannelList {
+            channels,
+            context,
+            title,
+        } => {
             app.loading = None;
             let items: Vec<ListItem> = channels
                 .into_iter()
@@ -80,7 +84,7 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
                     }
                 })
                 .collect();
-            let ls = ListScreen::new("Channels", items, ListContext::SelectChannelToBrowse);
+            let ls = ListScreen::new(title, items, context);
             app.push_screen(Screen::List(ls));
         }
 
@@ -155,31 +159,39 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             app.set_info(msg);
         }
 
-        AppEvent::SubFeedResults { items, load_more } => {
+        AppEvent::SubFeedResults {
+            items,
+            load_more,
+            title,
+        } => {
             app.loading = None;
             let items = crate::youtube::apply_shorts_filter(items, show_shorts);
             let ls = App::make_video_list_with_load_more(
-                "Subscription Feed",
+                title,
                 items,
-                ListContext::YoutubeVideoActions,
+                ListContext::VideoActions,
                 load_more,
             );
             preview::trigger_preview_for_selected(app, &ls);
             app.push_screen(Screen::List(ls));
         }
 
-        AppEvent::SubFeedRefreshed { items, load_more } => {
+        AppEvent::SubFeedRefreshed {
+            items,
+            load_more,
+            title,
+        } => {
             let items = crate::youtube::apply_shorts_filter(items, show_shorts);
             // Only swap the list if the user is still on the subscription feed.
             if let Screen::List(ls) = app.current_screen() {
-                if ls.title == "Subscription Feed" {
+                if ls.title == title {
                     let selected = ls.selected;
                     let scroll_offset = ls.scroll_offset;
                     let filter = ls.filter.clone();
                     let mut new_ls = App::make_video_list_with_load_more(
-                        "Subscription Feed",
+                        title,
                         items,
-                        ListContext::YoutubeVideoActions,
+                        ListContext::VideoActions,
                         load_more,
                     );
                     new_ls.selected = selected.min(new_ls.total_rows().saturating_sub(1));
@@ -196,6 +208,7 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             new_items,
             existing_items,
             load_more,
+            title,
         } => {
             app.loading = None;
             // Merge: existing + new, dedup by id, sort by date desc.
@@ -213,9 +226,9 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
                 _ => b.upload_date.cmp(&a.upload_date),
             });
             let ls = App::make_video_list_with_load_more(
-                "Subscription Feed",
+                title,
                 all,
-                ListContext::YoutubeVideoActions,
+                ListContext::VideoActions,
                 load_more,
             );
             preview::trigger_preview_for_selected(app, &ls);
@@ -376,6 +389,9 @@ pub async fn handle_key(app: &mut App, mut key: event::KeyEvent) {
         }
         Screen::TwitchMenu { selected } => {
             menus::handle_twitch_menu(app, key, selected).await;
+        }
+        Screen::PeertubeMenu { selected } => {
+            menus::handle_peertube_menu(app, key, selected).await;
         }
         Screen::List(ls) => {
             list::handle_list(app, key, ls).await;

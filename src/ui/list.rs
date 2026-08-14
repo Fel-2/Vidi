@@ -69,7 +69,7 @@ fn render_item_list(f: &mut Frame, area: Rect, ls: &ListScreen, app: &App) {
         .take(visible_height)
         .map(|(i, item)| {
             let (saved, watched) = match &item.data {
-                ItemData::YoutubeVideo(v) => (
+                ItemData::Video(v) => (
                     app.saved_ids.contains(&v.id),
                     app.watched_ids.contains(&v.id),
                 ),
@@ -135,7 +135,7 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
     let selected = filtered.get(ls.selected);
 
     let cache_key: Option<String> = selected.and_then(|item| match &item.data {
-        ItemData::YoutubeVideo(v) => Some(v.id.clone()),
+        ItemData::Video(v) => Some(v.id.clone()),
         ItemData::TwitchStream(s) if s.is_live => Some(format!("twitch_{}", s.login)),
         ItemData::TwitchVod(v) if !v.thumbnail.is_empty() => Some(format!("twitchvod_{}", v.id)),
         ItemData::TwitchGame(g) if !g.box_art.is_empty() => {
@@ -188,7 +188,7 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
 
     if let Some(item) = selected {
         match &item.data {
-            ItemData::YoutubeVideo(v) => {
+            ItemData::Video(v) => {
                 lines.push(Line::from(vec![
                     label("Title    "),
                     Span::styled(

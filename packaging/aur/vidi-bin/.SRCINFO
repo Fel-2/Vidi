@@ -1,5 +1,5 @@
 pkgbase = vidi-bin
-	pkgdesc = Terminal UI for YouTube and Twitch (prebuilt binary)
+	pkgdesc = Terminal UI for YouTube, Twitch and PeerTube (prebuilt binary)
 	pkgver = 0.3.3
 	pkgrel = 1
 	url = https://codeberg.org/Fel/Vidi

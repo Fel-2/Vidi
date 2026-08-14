@@ -4,6 +4,7 @@ mod config;
 mod events;
 mod innertube;
 mod models;
+mod peertube;
 mod player;
 mod preview;
 mod progress;
@@ -38,7 +39,7 @@ async fn main() -> Result<()> {
         }
         Some("-h" | "--help") => {
             println!(
-                "vidi {}\nA terminal UI for YouTube and Twitch.\n\n\
+                "vidi {}\nA terminal UI for YouTube, Twitch and PeerTube.\n\n\
                  Usage: vidi [OPTIONS]\n\n\
                  Options:\n  \
                  -V, --version  Print version\n  \
@@ -129,7 +130,7 @@ fn binary_exists(bin: &str) -> bool {
 fn check_dependencies(cfg: &config::Config) {
     // (binary, why it's needed)
     let mut checks: Vec<(&str, &str)> = vec![
-        ("yt-dlp", "YouTube/Twitch metadata and playback"),
+        ("yt-dlp", "YouTube/Twitch/PeerTube metadata and playback"),
         ("streamlink", "Twitch live stream status and playback"),
     ];
     // Honour the configured player binaries instead of assuming mpv.

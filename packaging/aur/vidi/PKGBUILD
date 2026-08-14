@@ -2,7 +2,7 @@
 pkgname=vidi
 pkgver=0.3.3
 pkgrel=1
-pkgdesc="Terminal UI for YouTube and Twitch"
+pkgdesc="Terminal UI for YouTube, Twitch and PeerTube"
 arch=('x86_64' 'aarch64')
 url="https://codeberg.org/Fel/Vidi"
 license=('MIT')

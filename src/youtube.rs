@@ -334,7 +334,11 @@ pub async fn search_channels(query: &str, limit: u32) -> Result<Vec<crate::model
             if url.is_empty() || name.is_empty() {
                 return None;
             }
-            Some(crate::models::Channel { name, url })
+            Some(crate::models::Channel {
+                name,
+                url,
+                avatar: None,
+            })
         })
         .collect();
 
@@ -770,6 +774,7 @@ pub async fn channel_from_url(url: &str) -> Channel {
         return Channel {
             name,
             url: url.to_string(),
+            avatar: None,
         };
     }
     if let Ok(json) = run_yt_dlp(url, 1).await {
@@ -783,6 +788,7 @@ pub async fn channel_from_url(url: &str) -> Channel {
             return Channel {
                 name,
                 url: url.to_string(),
+                avatar: None,
             };
         }
         if let Some(Value::Array(entries)) = json.get("entries") {
@@ -797,6 +803,7 @@ pub async fn channel_from_url(url: &str) -> Channel {
                     return Channel {
                         name,
                         url: url.to_string(),
+                        avatar: None,
                     };
                 }
             }
@@ -810,6 +817,7 @@ pub async fn channel_from_url(url: &str) -> Channel {
             .unwrap_or(url)
             .to_string(),
         url: url.to_string(),
+        avatar: None,
     }
 }
 
@@ -872,7 +880,11 @@ pub async fn fetch_channels() -> Result<Vec<Channel>> {
                 .or_else(|| cache.get(&url).cloned())
                 .or_else(|| resolved.get(&url).cloned())
                 .unwrap_or_else(|| url.clone());
-            Channel { name, url }
+            Channel {
+                name,
+                url,
+                avatar: None,
+            }
         })
         .collect();
 

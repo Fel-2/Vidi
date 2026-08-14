@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::models::{
-    Channel, ChannelTabLoadMore, CustomPlaylist, ItemData, ListItem, SubFeedLoadMore, TwitchGame,
-    TwitchStream, TwitchVod, Video,
+    Channel, ChannelTabLoadMore, CustomPlaylist, ItemData, ListItem, Platform, SubFeedLoadMore,
+    TwitchGame, TwitchStream, TwitchVod, Video,
 };
 use tokio::sync::mpsc;
 
@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 
 #[derive(Debug)]
 pub enum AppEvent {
-    YoutubeResults {
+    VideoResults {
         items: Vec<Video>,
         context: ListContext,
         title: String,
@@ -22,7 +22,11 @@ pub enum AppEvent {
     TwitchVodsResults(Vec<TwitchVod>),
     TwitchTopStreams(Vec<TwitchStream>),
     TwitchGamesResults(Vec<TwitchGame>),
-    ChannelList(Vec<Channel>),
+    ChannelList {
+        channels: Vec<Channel>,
+        context: ListContext,
+        title: String,
+    },
     CustomPlaylistResults(Vec<CustomPlaylist>),
     ChatMessage {
         user: String,
@@ -41,18 +45,21 @@ pub enum AppEvent {
     SubFeedResults {
         items: Vec<Video>,
         load_more: Option<SubFeedLoadMore>,
+        title: String,
     },
     /// Background refresh of the subscription feed finished — update the list
     /// in place if the user is still looking at it.
     SubFeedRefreshed {
         items: Vec<Video>,
         load_more: Option<SubFeedLoadMore>,
+        title: String,
     },
     /// Subscription feed "Load More" results — merges with the existing list.
     SubFeedMoreResults {
         new_items: Vec<Video>,
         existing_items: Vec<Video>,
         load_more: Option<SubFeedLoadMore>,
+        title: String,
     },
     /// Channel tab "Load More" results — merges with the existing list.
     ChannelTabMoreResults {
@@ -76,13 +83,14 @@ pub enum AppEvent {
 
 #[derive(Debug, Clone)]
 pub enum ListContext {
-    YoutubeVideoActions,
+    VideoActions,
     TwitchStreamActions,
     TwitchVodActions,
     SelectChannelForVods,
     /// Twitch VOD-type chooser for a given channel login (Archives/Highlights/…).
     SelectVodType(String),
     SelectChannelToBrowse,
+    SelectPeertubeChannel,
     /// Twitch category list — selecting a game opens its live streams.
     SelectGameForStreams,
     CustomPlaylistActions,
@@ -183,6 +191,9 @@ pub enum SearchContext {
     TwitchSearch,
     ExploreChannels,
     ExplorePlaylists,
+    PeertubeSearch,
+    PeertubeExploreChannels,
+    PeertubeInstance,
     ChannelSearch(String), // channel url
     /// Prompt for a file path to import subscriptions from.
     ImportSubscriptions,
@@ -224,6 +235,7 @@ pub struct ChannelActionsScreen {
     pub channel: Channel,
     pub selected: usize,
     pub subscribed: bool,
+    pub platform: Platform,
 }
 
 #[derive(Debug, Clone)]
@@ -243,6 +255,7 @@ pub enum Screen {
     ModeSelect { selected: usize },
     YoutubeMenu { selected: usize },
     TwitchMenu { selected: usize },
+    PeertubeMenu { selected: usize },
     List(ListScreen),
     VideoActions(VideoActionsScreen),
     QualitySelect(QualitySelectScreen),
@@ -422,7 +435,7 @@ impl App {
                 );
                 ListItem {
                     display,
-                    data: ItemData::YoutubeVideo(v),
+                    data: ItemData::Video(v),
                 }
             })
             .collect();
@@ -645,6 +658,7 @@ mod tests {
             subs: vec![],
             next_playlist_end: 20,
             label: "Load More".to_string(),
+            platform: Platform::Youtube,
         });
         assert_eq!(ls.total_rows(), 2);
     }

@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
 };
 
-use super::{BLUE, LAVENDER, MAUVE, SUBTEXT, TEAL};
+use super::{BLUE, LAVENDER, MAUVE, PEACH, SUBTEXT, TEAL};
 
 // ── ASCII art logo ────────────────────────────────────────────────────────────
 const YV_ART: &[&str] = &[
@@ -42,11 +42,22 @@ const TWITCH_MENU_DISPLAY: &[&str] = &[
     "✏️  Edit Subs",
 ];
 
+const PEERTUBE_MENU_DISPLAY: &[&str] = &[
+    "🔥  Trending",
+    "🆕  Recently Added",
+    "🔍  Search",
+    "📡  Subscription Feed",
+    "📋  Subscribed Channels",
+    "🔎  Explore Channels",
+    "✏️  Edit Subs",
+    "🌐  Change Instance",
+];
+
 // ── Mode select ───────────────────────────────────────────────────────────────
 
 pub(super) fn render_mode_select(f: &mut Frame, area: Rect, selected: usize) {
     let art_height = YV_ART.len() as u16;
-    let menu_items = ["📺  YouTube", "🟣  Twitch"];
+    let menu_items = ["📺  YouTube", "🟣  Twitch", "🐙  PeerTube"];
     let menu_height = menu_items.len() as u16;
     let gap: u16 = 1;
     let total_inner = art_height + 1 + gap + menu_height;
@@ -143,6 +154,35 @@ pub(super) fn render_twitch_menu(f: &mut Frame, area: Rect, selected: usize) {
             Style::default().fg(MAUVE).add_modifier(Modifier::BOLD),
         ))
         .border_style(Style::default().fg(MAUVE));
+
+    f.render_widget(List::new(items).block(block), area);
+}
+
+// ── PeerTube menu ─────────────────────────────────────────────────────────────
+
+pub(super) fn render_peertube_menu(f: &mut Frame, area: Rect, selected: usize) {
+    let items: Vec<ListItem> = PEERTUBE_MENU_DISPLAY
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            let style = if i == selected {
+                Style::default()
+                    .fg(PEACH)
+                    .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+            } else {
+                Style::default().fg(LAVENDER)
+            };
+            ListItem::new(format!("  {}  ", label)).style(style)
+        })
+        .collect();
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Span::styled(
+            " 🐙  PeerTube ",
+            Style::default().fg(PEACH).add_modifier(Modifier::BOLD),
+        ))
+        .border_style(Style::default().fg(PEACH));
 
     f.render_widget(List::new(items).block(block), area);
 }

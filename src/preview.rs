@@ -11,7 +11,7 @@ pub fn trigger_preview_for_selected(app: &mut App, ls: &ListScreen) {
         return;
     }
     match &filtered[ls.selected].data {
-        ItemData::YoutubeVideo(ref v) => trigger_preview(app, v),
+        ItemData::Video(ref v) => trigger_preview(app, v),
         ItemData::TwitchStream(ref s) if s.is_live => {
             let cache_key = format!("twitch_{}", s.login);
             let url = format!(
@@ -27,7 +27,10 @@ pub fn trigger_preview_for_selected(app: &mut App, ls: &ListScreen) {
         ItemData::TwitchGame(ref g) if !g.box_art.is_empty() => {
             trigger_preview_raw(app, twitch_game_cache_key(&g.name), g.box_art.clone());
         }
-        ItemData::Channel(ref c) => trigger_channel_preview(app, &c.url),
+        ItemData::Channel(ref c) => match c.avatar {
+            Some(ref url) => trigger_preview_raw(app, channel_cache_key(&c.url), url.clone()),
+            None => trigger_channel_preview(app, &c.url),
+        },
         _ => {}
     }
 }
@@ -49,11 +52,15 @@ pub fn twitch_game_cache_key(name: &str) -> String {
 
 /// Cache key (and on-disk PNG filename stem) for a channel's avatar preview.
 pub fn channel_cache_key(channel_url: &str) -> String {
-    let id: String = channel_url
-        .trim_end_matches('/')
-        .rsplit('/')
+    let trimmed = channel_url.trim_end_matches('/');
+    let host = trimmed
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split('/')
         .next()
-        .unwrap_or(channel_url)
+        .unwrap_or_default();
+    let name = trimmed.rsplit('/').next().unwrap_or(channel_url);
+    let id: String = format!("{}_{}", host, name)
         .chars()
         .map(|ch| {
             if ch.is_ascii_alphanumeric() || matches!(ch, '@' | '_' | '-') {
@@ -70,6 +77,9 @@ pub fn channel_cache_key(channel_url: &str) -> String {
 /// The avatar URL is disk-cached, so only the first hover spawns a yt-dlp; later
 /// hovers are a plain HTTP fetch like any other thumbnail.
 fn trigger_channel_preview(app: &mut App, channel_url: &str) {
+    if !crate::player::is_youtube_url(channel_url) {
+        return;
+    }
     let cache_key = channel_cache_key(channel_url);
     if app.preview_cache.contains_key(&cache_key) {
         return;
@@ -164,7 +174,7 @@ fn selected_video_id(app: &App) -> Option<String> {
         let filtered = ls.filtered_items();
         if let Some(item) = filtered.get(ls.selected) {
             return match &item.data {
-                ItemData::YoutubeVideo(v) => Some(v.id.clone()),
+                ItemData::Video(v) => Some(v.id.clone()),
                 ItemData::TwitchStream(s) if s.is_live => Some(format!("twitch_{}", s.login)),
                 ItemData::TwitchVod(v) if !v.thumbnail.is_empty() => {
                     Some(format!("twitchvod_{}", v.id))
