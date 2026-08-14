@@ -77,8 +77,9 @@ pub fn ytdl_format(quality: &str) -> String {
     }
 }
 
-/// Silences ffmpeg's per-segment HLS keepalive warnings; errors still print.
-const QUIET_HLS: &str = "--msg-level=ffmpeg/demuxer=error";
+/// Drops ffmpeg's warnings (HLS keepalive retries, unimplemented H.264 SEI),
+/// which bury the terminal mpv shares with vidi. Errors still print.
+const QUIET_FFMPEG: &str = "--msg-level=ffmpeg=error";
 
 /// Build mpv arguments for watching a video.
 pub fn mpv_watch_args(url: &str, title: &str, quality: &str) -> Vec<String> {
@@ -88,7 +89,7 @@ pub fn mpv_watch_args(url: &str, title: &str, quality: &str) -> Vec<String> {
         format!("--force-media-title={}", title),
         format!("--script-opts-append=mpris-title={}", title),
         format!("--ytdl-format={}", ytdl_format(quality)),
-        QUIET_HLS.to_string(),
+        QUIET_FFMPEG.to_string(),
     ]
 }
 
@@ -97,7 +98,7 @@ pub fn mpv_queue_args(urls: &[String], quality: &str) -> Vec<String> {
     let mut args = vec![
         "mpv".to_string(),
         format!("--ytdl-format={}", ytdl_format(quality)),
-        QUIET_HLS.to_string(),
+        QUIET_FFMPEG.to_string(),
     ];
     args.extend(urls.iter().cloned());
     args
