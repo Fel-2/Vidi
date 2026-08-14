@@ -1,6 +1,6 @@
 pkgbase = vidi-bin
 	pkgdesc = Terminal UI for YouTube and Twitch (prebuilt binary)
-	pkgver = 0.3.2
+	pkgver = 0.3.3
 	pkgrel = 1
 	url = https://codeberg.org/Fel/Vidi
 	arch = x86_64
@@ -15,9 +15,9 @@ pkgbase = vidi-bin
 	provides = vidi
 	conflicts = vidi
 	conflicts = vidi-git
-	source_x86_64 = vidi-bin-0.3.2-x86_64.tar.gz::https://github.com/Fel-2/Vidi/releases/download/v0.3.2/vidi-v0.3.2-x86_64-unknown-linux-musl.tar.gz
-	sha256sums_x86_64 = 1df79437fa7383d4956a910f8e039fcf16c5401e401efae771e70d6b601a747a
-	source_aarch64 = vidi-bin-0.3.2-aarch64.tar.gz::https://github.com/Fel-2/Vidi/releases/download/v0.3.2/vidi-v0.3.2-aarch64-unknown-linux-musl.tar.gz
-	sha256sums_aarch64 = 6b7239ea6d892e58cba914836541987770b4e43204070c37800564fe4c657cd7
+	source_x86_64 = vidi-bin-0.3.3-x86_64.tar.gz::https://github.com/Fel-2/Vidi/releases/download/v0.3.3/vidi-v0.3.3-x86_64-unknown-linux-musl.tar.gz
+	sha256sums_x86_64 = b152092fedf625f6d642b3c36d6241393be861899a4074c6bf3950304c60c811
+	source_aarch64 = vidi-bin-0.3.3-aarch64.tar.gz::https://github.com/Fel-2/Vidi/releases/download/v0.3.3/vidi-v0.3.3-aarch64-unknown-linux-musl.tar.gz
+	sha256sums_aarch64 = 4d27a40a3c0692f520f737a983470c3fe047cc6f0090ee89a1e72d867d8d6cfe
 
 pkgname = vidi-bin
