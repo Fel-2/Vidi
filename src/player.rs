@@ -77,6 +77,17 @@ pub fn ytdl_format(quality: &str) -> String {
     }
 }
 
+/// Maps a streamlink-style Twitch quality ("best", "1080p60", "720p") to a
+/// max-height value understood by `ytdl_format`.
+pub fn twitch_quality_to_height(quality: &str) -> String {
+    let digits: String = quality.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        "best".to_string()
+    } else {
+        digits
+    }
+}
+
 /// Drops ffmpeg's warnings (HLS keepalive retries, unimplemented H.264 SEI),
 /// which bury the terminal mpv shares with vidi. Errors still print.
 const QUIET_FFMPEG: &str = "--msg-level=ffmpeg=error";
@@ -224,6 +235,14 @@ mod tests {
         let args = mpv_watch_args("https://youtu.be/abc", "T", "1080");
         assert_eq!(args[0], "mpv");
         assert_eq!(args[1], "https://youtu.be/abc");
+    }
+
+    #[test]
+    fn twitch_quality_maps_to_height() {
+        assert_eq!(twitch_quality_to_height("best"), "best");
+        assert_eq!(twitch_quality_to_height("1080p60"), "1080");
+        assert_eq!(twitch_quality_to_height("720p"), "720");
+        assert_eq!(twitch_quality_to_height("audio_only"), "best");
     }
 
     #[test]

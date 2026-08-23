@@ -6,7 +6,7 @@ use crate::app::{
     QualitySelectScreen, Screen, SearchContext, SearchInputScreen, TwitchStreamActionsScreen,
     TwitchVodActionsScreen, VideoActionsScreen,
 };
-use crate::models::{ChannelTabLoadMore, ItemData, Platform, Video};
+use crate::models::{ChannelTabLoadMore, ItemData, Platform, TwitchStream, Video};
 use crate::ui::{
     channel_action_items, peertube_channel_action_items, twitch_stream_action_items,
     twitch_vod_action_items, VIDEO_ACTION_ITEMS,
@@ -38,6 +38,50 @@ async fn watch_video(app: &mut App, video: &Video, quality: &str) {
         youtube::add_to_recent(video, app.config.youtube.no_of_recent).ok();
     }
     app.watched_ids.insert(video.id.clone());
+}
+
+/// Watch a live Twitch stream through its ongoing-broadcast archive URL so
+/// mpv keeps the terminal (keyboard control) and gets the full DVR playlist
+/// (rewinding). Falls back to streamlink when no archive exists.
+pub(super) async fn watch_live_stream(app: &mut App, stream: &TwitchStream, detached: bool) {
+    let client_id = app.config.twitch.client_id.clone();
+    let archive = twitch::fetch_current_vod(&client_id, &stream.login)
+        .await
+        .ok()
+        .flatten();
+
+    let args = match archive {
+        Some(id) => {
+            let url = format!("https://www.twitch.tv/videos/{id}");
+            let quality = player::twitch_quality_to_height(&app.config.twitch.quality);
+            let mut args = player::mpv_watch_args(&url, &stream.title, &quality);
+            if app.config.youtube.watch_progress {
+                let key = format!("twitchvod_{id}");
+                if let Some(start) = crate::progress::resume_position(&key) {
+                    args.push(format!("--start={}", start as u64));
+                }
+                let socket = crate::progress::socket_path();
+                args.extend(crate::progress::mpv_ipc_args(&socket));
+                tokio::spawn(crate::progress::track(socket, key));
+            }
+            args
+        }
+        None => {
+            let url = twitch::twitch_stream_url(&stream.login);
+            player::streamlink_args(
+                &url,
+                &app.config.twitch.quality,
+                &app.config.twitch.player,
+            )
+        }
+    };
+
+    let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    if detached {
+        player::spawn_detached(&args_str).ok();
+    } else {
+        let _ = player::launch_external(&args_str).await;
+    }
 }
 
 pub(super) async fn handle_video_actions(
@@ -435,15 +479,10 @@ pub(super) async fn handle_twitch_stream_actions(
         }
         KeyCode::Enter => {
             let action = &items[sa.selected];
-            let stream_url = twitch::twitch_stream_url(&sa.stream.login);
-            let quality = app.config.twitch.quality.clone();
-            let player_bin = app.config.twitch.player.clone();
 
             match action.as_str() {
                 "Watch Stream" => {
-                    let args = player::streamlink_args(&stream_url, &quality, &player_bin);
-                    let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-                    let _ = player::launch_external(&args_str).await;
+                    watch_live_stream(app, &sa.stream, false).await;
                 }
                 "Open Chat" => {
                     let channel = sa.stream.login.clone();
@@ -460,9 +499,7 @@ pub(super) async fn handle_twitch_stream_actions(
                     chat::spawn_chat_task(channel, tx);
                 }
                 "Watch + Chat" => {
-                    let args = player::streamlink_args(&stream_url, &quality, &player_bin);
-                    let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-                    player::spawn_detached(&args_str).ok();
+                    watch_live_stream(app, &sa.stream, true).await;
 
                     let channel = sa.stream.login.clone();
                     let tx = app.tx.clone();

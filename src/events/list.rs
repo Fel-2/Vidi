@@ -278,13 +278,7 @@ async fn item_shortcut(app: &mut App, code: KeyCode, item: ListItem) {
             let url = twitch::twitch_stream_url(&stream.login);
             match code {
                 KeyCode::Char('p') => {
-                    let args = player::streamlink_args(
-                        &url,
-                        &app.config.twitch.quality,
-                        &app.config.twitch.player,
-                    );
-                    let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-                    let _ = player::launch_external(&args_str).await;
+                    super::actions::watch_live_stream(app, &stream, false).await;
                 }
                 KeyCode::Char('y') => copy(app, &url),
                 _ => {}

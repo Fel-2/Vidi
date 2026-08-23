@@ -317,6 +317,19 @@ async fn streamlink_parallel(subs: Vec<String>) -> Vec<TwitchStream> {
 // VODs
 // ---------------------------------------------------------------------------
 
+/// Id of the VOD backing the channel's ongoing broadcast, if any.
+pub async fn fetch_current_vod(client_id: &str, login: &str) -> Result<Option<String>> {
+    let payload = serde_json::json!({
+        "query": "query($l:String!){user(login:$l){stream{archiveVideo{id}}}}",
+        "variables": { "l": login }
+    });
+    let resp = gql(client_id, payload).await?;
+    Ok(resp
+        .pointer("/data/user/stream/archiveVideo/id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string()))
+}
+
 /// Twitch VOD categories, mapping to the GQL `BroadcastType` enum.
 pub const VOD_TYPES: &[(&str, &str)] = &[
     ("Past Broadcasts", "ARCHIVE"),
