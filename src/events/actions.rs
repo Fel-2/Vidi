@@ -68,11 +68,7 @@ pub(super) async fn watch_live_stream(app: &mut App, stream: &TwitchStream, deta
         }
         None => {
             let url = twitch::twitch_stream_url(&stream.login);
-            player::streamlink_args(
-                &url,
-                &app.config.twitch.quality,
-                &app.config.twitch.player,
-            )
+            player::streamlink_args(&url, &app.config.twitch.quality, &app.config.twitch.player)
         }
     };
 
