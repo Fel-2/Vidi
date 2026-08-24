@@ -266,9 +266,10 @@ pub fn video_id_from_arg(arg: &str) -> Option<String> {
 }
 
 fn is_video_id(s: &str) -> bool {
-    s.len() == 11 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    s.len() == 11
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
-
 
 /// Convert a Unix timestamp (seconds) to `YYYYMMDD` string (UTC).
 pub fn timestamp_to_yyyymmdd(secs: i64) -> String {
@@ -1056,7 +1057,10 @@ mod tests {
     #[test]
     fn video_id_from_bare_id() {
         assert_eq!(video_id_from_arg("dQw4w9WgXcQ"), Some("dQw4w9WgXcQ".into()));
-        assert_eq!(video_id_from_arg("  aB5LGrHISqY  "), Some("aB5LGrHISqY".into()));
+        assert_eq!(
+            video_id_from_arg("  aB5LGrHISqY  "),
+            Some("aB5LGrHISqY".into())
+        );
     }
 
     #[test]
