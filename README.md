@@ -78,7 +78,7 @@ destination or `VERSION=v0.2.0` to pin a release.
 ### Arch / Artix
 
 ```bash
-git clone https://codeberg.org/Fel/Vidi.git
+git clone https://github.com/Fel-2/Vidi.git
 cd Vidi/packaging
 makepkg -si
 ```
