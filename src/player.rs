@@ -94,14 +94,14 @@ const QUIET_FFMPEG: &str = "--msg-level=ffmpeg=error";
 
 /// Build mpv arguments for watching a video.
 pub fn mpv_watch_args(url: &str, title: &str, quality: &str) -> Vec<String> {
-    vec![
-        "mpv".to_string(),
-        url.to_string(),
-        format!("--force-media-title={}", title),
-        format!("--script-opts-append=mpris-title={}", title),
-        format!("--ytdl-format={}", ytdl_format(quality)),
-        QUIET_FFMPEG.to_string(),
-    ]
+    let mut args = vec!["mpv".to_string(), url.to_string()];
+    if !title.is_empty() {
+        args.push(format!("--force-media-title={}", title));
+        args.push(format!("--script-opts-append=mpris-title={}", title));
+    }
+    args.push(format!("--ytdl-format={}", ytdl_format(quality)));
+    args.push(QUIET_FFMPEG.to_string());
+    args
 }
 
 /// Build mpv arguments to play several URLs back to back (the queue).

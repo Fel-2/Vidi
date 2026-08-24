@@ -32,6 +32,7 @@ use app::App;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let mut deep_link_id: Option<String> = None;
     match std::env::args().nth(1).as_deref() {
         Some("-V" | "--version") => {
             println!("vidi {}", update::current_version());
@@ -40,7 +41,10 @@ async fn main() -> Result<()> {
         Some("-h" | "--help") => {
             println!(
                 "vidi {}\nA terminal UI for YouTube, Twitch and PeerTube.\n\n\
-                 Usage: vidi [OPTIONS]\n\n\
+                 Usage: vidi [URL_OR_ID] [OPTIONS]\n\n\
+                 Arguments:\n  \
+                 URL_OR_ID      Play a YouTube video right away (watch?v=, youtu.be,\n                 \
+                 shorts/live/embed URLs, or a bare 11-char video id)\n\n\
                  Options:\n  \
                  -V, --version  Print version\n  \
                  -h, --help     Print this help\n\n\
@@ -49,7 +53,17 @@ async fn main() -> Result<()> {
             );
             return Ok(());
         }
-        _ => {}
+        Some(arg) => match youtube::video_id_from_arg(arg) {
+            Some(id) => deep_link_id = Some(id),
+            None => {
+                eprintln!(
+                    "vidi: '{arg}' is not a YouTube video URL or id\n\
+                     expected watch?v=, youtu.be, shorts/live/embed URLs or an 11-char video id"
+                );
+                std::process::exit(2);
+            }
+        },
+        None => {}
     }
 
     config::write_default_youtube_config().ok();
@@ -97,7 +111,17 @@ async fn main() -> Result<()> {
         });
     }
 
-    let result = run_app(&mut terminal, &mut app).await;
+    let deep_link = deep_link_id.map(|id| {
+        let url = format!("https://www.youtube.com/watch?v={id}");
+        models::Video {
+            id: id.clone(),
+            title: id,
+            url,
+            ..Default::default()
+        }
+    });
+
+    let result = run_app(&mut terminal, &mut app, deep_link).await;
 
     disable_raw_mode()?;
     execute!(
@@ -171,7 +195,11 @@ fn check_dependencies(cfg: &config::Config) {
 async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     app: &mut App,
+    deep_link: Option<models::Video>,
 ) -> Result<()> {
+    if let Some(video) = deep_link {
+        events::play_video_directly(app, &video).await;
+    }
     loop {
         if player::take_tui_suspended() {
             terminal.clear()?;

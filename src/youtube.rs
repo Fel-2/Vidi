@@ -213,6 +213,63 @@ pub fn apply_shorts_filter(videos: Vec<Video>, show_shorts: bool) -> Vec<Video> 
     }
 }
 
+/// Extract a video id from a bare id or a YouTube URL (watch, youtu.be,
+/// shorts, live, embed, v). Returns None for anything else.
+pub fn video_id_from_arg(arg: &str) -> Option<String> {
+    let arg = arg.trim();
+    if is_video_id(arg) {
+        return Some(arg.to_string());
+    }
+
+    let mut rest = arg;
+    if let Some(after) = rest
+        .strip_prefix("http://")
+        .or_else(|| rest.strip_prefix("https://"))
+    {
+        rest = after;
+    }
+
+    let (host, tail) = rest.split_once('/')?;
+    let host = host.to_lowercase();
+    if host != "youtu.be"
+        && host != "youtube.com"
+        && !host.ends_with(".youtube.com")
+        && !host.ends_with("youtube-nocookie.com")
+    {
+        return None;
+    }
+
+    if host == "youtu.be" {
+        let id = tail.split(['/', '?', '#']).find(|s| !s.is_empty())?;
+        return is_video_id(id).then(|| id.to_string());
+    }
+
+    let (head, query) = tail.split_once('?').unwrap_or((tail, ""));
+    let mut head_segments = head.split('/').filter(|s| !s.is_empty());
+
+    match head_segments.next()?.to_lowercase().as_str() {
+        "watch" => {
+            for kv in query.split('&') {
+                if let Some(v) = kv.strip_prefix("v=") {
+                    let v = v.split(['#', '&']).next().unwrap_or(v);
+                    return is_video_id(v).then(|| v.to_string());
+                }
+            }
+            None
+        }
+        "shorts" | "live" | "embed" | "v" => {
+            let id = head_segments.next()?;
+            is_video_id(id).then(|| id.to_string())
+        }
+        _ => None,
+    }
+}
+
+fn is_video_id(s: &str) -> bool {
+    s.len() == 11 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+
 /// Convert a Unix timestamp (seconds) to `YYYYMMDD` string (UTC).
 pub fn timestamp_to_yyyymmdd(secs: i64) -> String {
     let days = secs / 86400;
@@ -993,6 +1050,78 @@ pub async fn channel_avatar_url(channel_url: &str) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // ── video_id_from_arg ───────────────────────────────────────────────
+
+    #[test]
+    fn video_id_from_bare_id() {
+        assert_eq!(video_id_from_arg("dQw4w9WgXcQ"), Some("dQw4w9WgXcQ".into()));
+        assert_eq!(video_id_from_arg("  aB5LGrHISqY  "), Some("aB5LGrHISqY".into()));
+    }
+
+    #[test]
+    fn video_id_from_watch_url() {
+        assert_eq!(
+            video_id_from_arg("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
+            Some("dQw4w9WgXcQ".into())
+        );
+        assert_eq!(
+            video_id_from_arg("youtube.com/watch?v=aB5LGrHISqY&t=42s"),
+            Some("aB5LGrHISqY".into())
+        );
+        assert_eq!(
+            video_id_from_arg("https://m.youtube.com/watch?v=dQw4w9WgXcQ"),
+            Some("dQw4w9WgXcQ".into())
+        );
+    }
+
+    #[test]
+    fn video_id_from_short_urls() {
+        assert_eq!(
+            video_id_from_arg("https://youtu.be/dQw4w9WgXcQ"),
+            Some("dQw4w9WgXcQ".into())
+        );
+        assert_eq!(
+            video_id_from_arg("youtu.be/aB5LGrHISqY?t=30"),
+            Some("aB5LGrHISqY".into())
+        );
+        assert_eq!(
+            video_id_from_arg("https://www.youtube.com/shorts/dQw4w9WgXcQ"),
+            Some("dQw4w9WgXcQ".into())
+        );
+        assert_eq!(
+            video_id_from_arg("youtube.com/live/dQw4w9WgXcQ"),
+            Some("dQw4w9WgXcQ".into())
+        );
+        assert_eq!(
+            video_id_from_arg("youtube.com/embed/dQw4w9WgXcQ"),
+            Some("dQw4w9WgXcQ".into())
+        );
+    }
+
+    #[test]
+    fn video_id_preserves_case_sensitive_ids() {
+        // Lowercasing the id would break it; only the host is case-folded.
+        assert_eq!(
+            video_id_from_arg("https://www.youtube.com/watch?v=DqW4W9WgXcQ"),
+            Some("DqW4W9WgXcQ".into())
+        );
+    }
+
+    #[test]
+    fn video_id_rejects_non_videos() {
+        assert_eq!(video_id_from_arg("tooshort"), None);
+        assert_eq!(video_id_from_arg("waytoolongforavid"), None);
+        assert_eq!(video_id_from_arg("https://twitch.tv/someone"), None);
+        assert_eq!(
+            video_id_from_arg("https://www.youtube.com/@somechannel"),
+            None
+        );
+        assert_eq!(
+            video_id_from_arg("https://www.youtube.com/watch?v=bad"),
+            None
+        );
+    }
 
     // ── urlencoding_simple ──────────────────────────────────────────────
 

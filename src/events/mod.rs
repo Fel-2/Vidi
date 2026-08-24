@@ -10,10 +10,15 @@ mod search;
 use crate::app::{
     App, AppEvent, ChatMessage, ListContext, ListScreen, MessageKind, PreviewEntry, Screen,
 };
-use crate::models::ItemData;
-use crate::models::ListItem;
+use crate::models::{ItemData, ListItem, Video};
 use crate::{config, preview, update};
 use crossterm::event::{self, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+
+/// Play a single video immediately, bypassing the UI. Used by the CLI
+/// deep-link (`vidi <url-or-id>`); identical to pressing "Watch".
+pub async fn play_video_directly(app: &mut App, video: &Video) {
+    actions::video_action_execute(app, video, "Watch").await;
+}
 
 pub fn handle_app_event(app: &mut App, event: AppEvent) {
     let show_shorts = app.config.youtube.show_shorts;
