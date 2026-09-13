@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -88,6 +88,16 @@ pub fn twitch_quality_to_height(quality: &str) -> String {
     }
 }
 
+/// Default a live quality to "best" when unset.
+pub fn live_quality(quality: &str) -> String {
+    let q = quality.trim();
+    if q.is_empty() {
+        "best".to_string()
+    } else {
+        q.to_string()
+    }
+}
+
 /// Drops ffmpeg's warnings (HLS keepalive retries, unimplemented H.264 SEI),
 /// which bury the terminal mpv shares with vidi. Errors still print.
 const QUIET_FFMPEG: &str = "--msg-level=ffmpeg=error";
@@ -102,6 +112,35 @@ pub fn mpv_watch_args(url: &str, title: &str, quality: &str) -> Vec<String> {
     args.push(format!("--ytdl-format={}", ytdl_format(quality)));
     args.push(QUIET_FFMPEG.to_string());
     args
+}
+
+/// Resolve a stream URL for `url` with `yt-dlp`, without downloading.
+pub async fn resolve_stream_url(url: &str, quality: &str) -> Result<String> {
+    let selector = ytdl_format(quality);
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(90),
+        tokio::process::Command::new("yt-dlp")
+            .args(["--no-warnings", "--no-playlist", "-f", &selector, "-g", url])
+            .output(),
+    )
+    .await
+    .context("yt-dlp timed out resolving the stream")?
+    .context("Failed to run yt-dlp")?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("yt-dlp could not resolve the stream: {}", err.trim());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let url = stdout
+        .lines()
+        .map(|l| l.trim())
+        .find(|l| !l.is_empty())
+        .unwrap_or("");
+    if url.is_empty() {
+        anyhow::bail!("yt-dlp returned no stream URL");
+    }
+    Ok(url.to_string())
 }
 
 /// Build mpv arguments to play several URLs back to back (the queue).
@@ -243,6 +282,14 @@ mod tests {
         assert_eq!(twitch_quality_to_height("1080p60"), "1080");
         assert_eq!(twitch_quality_to_height("720p"), "720");
         assert_eq!(twitch_quality_to_height("audio_only"), "best");
+    }
+
+    #[test]
+    fn live_quality_passes_names_through() {
+        assert_eq!(live_quality("best"), "best");
+        assert_eq!(live_quality("1080p60"), "1080p60");
+        assert_eq!(live_quality("  "), "best");
+        assert_eq!(live_quality(""), "best");
     }
 
     #[test]

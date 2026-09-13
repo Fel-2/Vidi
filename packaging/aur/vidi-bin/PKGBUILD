@@ -2,13 +2,13 @@
 pkgname=vidi-bin
 pkgver=0.4.0
 pkgrel=1
-pkgdesc="Terminal UI for YouTube, Twitch and PeerTube (prebuilt binary)"
+pkgdesc="Terminal UI for YouTube, Twitch, Kick and PeerTube (prebuilt binary)"
 arch=('x86_64' 'aarch64')
 url="https://codeberg.org/Fel/Vidi"
 license=('MIT')
 depends=('yt-dlp' 'mpv')
 optdepends=(
-  'streamlink: Twitch live stream status and playback'
+  'streamlink: Twitch and Kick live stream status and playback'
   'kitty: inline thumbnail previews'
   'ghostty: inline thumbnail previews'
   'wezterm: inline thumbnail previews'

@@ -95,6 +95,47 @@ pub struct TwitchVod {
 }
 
 // ---------------------------------------------------------------------------
+// Kick models
+// ---------------------------------------------------------------------------
+
+/// A Kick channel's live status (mirrors `TwitchStream`).
+#[derive(Debug, Clone, Default)]
+pub struct KickStream {
+    pub slug: String,
+    pub title: String,
+    pub category: String,
+    pub viewers: u64,
+    pub is_live: bool,
+    /// Human-readable stream uptime (e.g. "3h 12m"), empty when offline/unknown.
+    pub uptime: String,
+    /// Channel avatar URL, when known.
+    pub avatar: String,
+    /// Live thumbnail URL, when known.
+    pub thumbnail: String,
+}
+
+/// A Kick category (mirrors `TwitchGame`).
+#[derive(Debug, Clone, Default)]
+pub struct KickCategory {
+    pub name: String,
+    pub slug: String,
+    pub icon: String,
+}
+
+/// A Kick VOD (mirrors `TwitchVod`).
+#[derive(Debug, Clone, Default)]
+pub struct KickVod {
+    pub id: String,
+    pub title: String,
+    pub duration: String,
+    pub upload_date: String,
+    pub thumbnail: String,
+    pub url: String,
+    pub view_count: u64,
+    pub game: String,
+}
+
+// ---------------------------------------------------------------------------
 // List item data variants
 // ---------------------------------------------------------------------------
 
@@ -130,6 +171,9 @@ pub enum ItemData {
     TwitchStream(TwitchStream),
     TwitchVod(TwitchVod),
     TwitchGame(TwitchGame),
+    KickStream(KickStream),
+    KickVod(KickVod),
+    KickCategory(KickCategory),
     Channel(Channel),
     CustomPlaylist(CustomPlaylist),
     Text(String),

@@ -141,6 +141,13 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
         ItemData::TwitchGame(g) if !g.box_art.is_empty() => {
             Some(crate::preview::twitch_game_cache_key(&g.name))
         }
+        ItemData::KickStream(s) => {
+            let image = (s.is_live && !s.thumbnail.is_empty()) || !s.avatar.is_empty();
+            image.then(|| crate::preview::kick_stream_cache_key(&s.slug))
+        }
+        ItemData::KickVod(v) if !v.thumbnail.is_empty() => {
+            Some(crate::preview::kick_vod_cache_key(&v.id))
+        }
         ItemData::Channel(c) => Some(crate::preview::channel_cache_key(&c.url)),
         _ => None,
     });
@@ -369,6 +376,108 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
                     label("Viewers  "),
                     Span::styled(format_views(g.viewers), Style::default().fg(TEXT)),
                 ]));
+            }
+            ItemData::KickStream(s) => {
+                let status_style = if s.is_live {
+                    Style::default().fg(GREEN).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(OVERLAY)
+                };
+                lines.push(Line::from(vec![
+                    label("Channel  "),
+                    Span::styled(
+                        truncate_str(&s.slug, inner_w.saturating_sub(9)),
+                        Style::default().fg(TEXT),
+                    ),
+                ]));
+                lines.push(Line::from(vec![
+                    label("Status   "),
+                    Span::styled(
+                        if s.is_live {
+                            "🔴 LIVE"
+                        } else {
+                            "⚫ Offline"
+                        },
+                        status_style,
+                    ),
+                ]));
+                if !s.category.is_empty() {
+                    lines.push(Line::from(vec![
+                        label("Category "),
+                        Span::styled(
+                            truncate_str(&s.category, inner_w.saturating_sub(9)),
+                            Style::default().fg(TEXT),
+                        ),
+                    ]));
+                }
+                if s.viewers > 0 {
+                    lines.push(Line::from(vec![
+                        label("Viewers  "),
+                        Span::styled(format_views(s.viewers), Style::default().fg(TEXT)),
+                    ]));
+                }
+                if !s.uptime.is_empty() {
+                    lines.push(Line::from(vec![
+                        label("Uptime   "),
+                        Span::styled(s.uptime.clone(), Style::default().fg(TEXT)),
+                    ]));
+                }
+                if !s.title.is_empty() {
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(Span::styled(
+                        "Title",
+                        Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+                    )));
+                    lines.push(Line::from(Span::styled(
+                        truncate_str(&s.title, inner_w),
+                        Style::default().fg(SUBTEXT),
+                    )));
+                }
+            }
+            ItemData::KickCategory(c) => {
+                lines.push(Line::from(vec![
+                    label("Category "),
+                    Span::styled(
+                        truncate_str(&format!("{} {}", c.icon, c.name), inner_w.saturating_sub(9)),
+                        Style::default().fg(TEXT),
+                    ),
+                ]));
+            }
+            ItemData::KickVod(v) => {
+                lines.push(Line::from(vec![
+                    label("Title    "),
+                    Span::styled(
+                        truncate_str(&v.title, inner_w.saturating_sub(9)),
+                        Style::default().fg(TEXT),
+                    ),
+                ]));
+                if !v.duration.is_empty() {
+                    lines.push(Line::from(vec![
+                        label("Duration "),
+                        Span::styled(v.duration.clone(), Style::default().fg(TEXT)),
+                    ]));
+                }
+                if !v.upload_date.is_empty() {
+                    lines.push(Line::from(vec![
+                        label("Date     "),
+                        Span::styled(v.upload_date.clone(), Style::default().fg(TEXT)),
+                    ]));
+                }
+                if !v.game.is_empty() {
+                    lines.push(Line::from(vec![
+                        label("Category "),
+                        Span::styled(
+                            truncate_str(&v.game, inner_w.saturating_sub(9)),
+                            Style::default().fg(TEXT),
+                        ),
+                    ]));
+                }
+                if v.view_count > 0 {
+                    lines.push(Line::from(vec![
+                        label("Views    "),
+                        Span::styled(format_views(v.view_count), Style::default().fg(TEXT)),
+                    ]));
+                }
             }
             _ => {}
         }

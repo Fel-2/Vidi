@@ -81,6 +81,35 @@ impl Default for TwitchConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Kick config
+// ---------------------------------------------------------------------------
+
+/// Browser User-Agent; Kick rejects requests without one.
+const DEFAULT_KICK_UA: &str =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
+
+#[derive(Debug, Clone)]
+pub struct KickConfig {
+    pub player: String,
+    pub quality: String,
+    pub editor: String,
+    pub enable_preview: bool,
+    pub user_agent: String,
+}
+
+impl Default for KickConfig {
+    fn default() -> Self {
+        Self {
+            player: "mpv".into(),
+            quality: "best".into(),
+            editor: std::env::var("EDITOR").unwrap_or_else(|_| "nano".into()),
+            enable_preview: false,
+            user_agent: DEFAULT_KICK_UA.into(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // PeerTube config
 // ---------------------------------------------------------------------------
 
@@ -128,6 +157,7 @@ pub struct Keybindings {
 pub struct Config {
     pub youtube: YoutubeConfig,
     pub twitch: TwitchConfig,
+    pub kick: KickConfig,
     pub peertube: PeertubeConfig,
     pub keys: Keybindings,
 }
@@ -201,6 +231,14 @@ pub fn twitch_config_file() -> PathBuf {
 
 pub fn twitch_subs_file() -> PathBuf {
     youtube_config_dir().join("twitch_subs")
+}
+
+pub fn kick_config_file() -> PathBuf {
+    youtube_config_dir().join("kick.conf")
+}
+
+pub fn kick_subs_file() -> PathBuf {
+    youtube_config_dir().join("kick_subs")
 }
 
 pub fn peertube_config_file() -> PathBuf {
@@ -337,6 +375,42 @@ pub fn load_twitch_config() -> Result<TwitchConfig> {
     Ok(cfg)
 }
 
+pub fn load_kick_config() -> Result<KickConfig> {
+    let mut cfg = KickConfig::default();
+    let path = kick_config_file();
+    if !path.exists() {
+        std::fs::create_dir_all(youtube_config_dir())?;
+        return Ok(cfg);
+    }
+    let content = std::fs::read_to_string(&path)?;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            continue;
+        }
+        if let Some((key, val)) = trimmed
+            .split_once(':')
+            .map(|(k, v)| (k.trim(), v.trim()))
+            .or_else(|| {
+                trimmed
+                    .split_once('=')
+                    .map(|(k, v)| (k.trim(), v.trim().trim_matches('"')))
+            })
+        {
+            match key {
+                "PLAYER" => cfg.player = val.to_string(),
+                "QUALITY" => cfg.quality = val.to_string(),
+                "PREFERRED_EDITOR" | "EDITOR" => cfg.editor = val.to_string(),
+                "ENABLE_PREVIEW" => cfg.enable_preview = val.to_lowercase() == "true",
+                "USER_AGENT" if !val.is_empty() => cfg.user_agent = val.to_string(),
+                _ => {}
+            }
+        }
+    }
+    Ok(cfg)
+}
+
 pub fn load_peertube_config() -> Result<PeertubeConfig> {
     let mut cfg = PeertubeConfig::default();
     let path = peertube_config_file();
@@ -408,6 +482,7 @@ pub fn load_config() -> Result<Config> {
     Ok(Config {
         youtube: load_youtube_config()?,
         twitch: load_twitch_config()?,
+        kick: load_kick_config()?,
         peertube: load_peertube_config().unwrap_or_default(),
         keys: load_keybindings(),
     })
@@ -488,6 +563,27 @@ pub fn write_default_twitch_config() -> Result<()> {
     Ok(())
 }
 
+pub fn write_default_kick_config() -> Result<()> {
+    let path = kick_config_file();
+    std::fs::create_dir_all(youtube_config_dir())?;
+    if path.exists() {
+        return Ok(());
+    }
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".into());
+    let content = format!(
+        "# Kick TUI Configuration\n\
+         PREFERRED_EDITOR=\"{}\"\n\
+         PLAYER=\"mpv\"\n\
+         QUALITY=\"best\"\n\
+         ENABLE_PREVIEW=\"false\"\n\
+         # Kick has no public API and rejects requests without a browser UA (optional).\n\
+         # USER_AGENT=\"{}\"\n",
+        editor, DEFAULT_KICK_UA
+    );
+    std::fs::write(path, content)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -562,5 +658,14 @@ mod tests {
         assert_eq!(cfg.player, "mpv");
         assert_eq!(cfg.quality, "best");
         assert!(!cfg.enable_preview);
+    }
+
+    #[test]
+    fn kick_config_defaults() {
+        let cfg = KickConfig::default();
+        assert_eq!(cfg.player, "mpv");
+        assert_eq!(cfg.quality, "best");
+        assert!(!cfg.enable_preview);
+        assert!(cfg.user_agent.contains("Mozilla"));
     }
 }

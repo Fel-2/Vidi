@@ -73,6 +73,46 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             app.push_screen(Screen::List(ls));
         }
 
+        AppEvent::KickSearchResults(streams) => {
+            app.loading = None;
+            let ls =
+                App::make_kick_stream_list("Kick Search", streams, ListContext::KickStreamActions);
+            app.push_screen(Screen::List(ls));
+        }
+
+        AppEvent::KickSubsResults(streams) => {
+            app.loading = None;
+            let ls = App::make_kick_stream_list(
+                "Live Subscriptions",
+                streams,
+                ListContext::KickStreamActions,
+            );
+            app.push_screen(Screen::List(ls));
+        }
+
+        AppEvent::KickVodsResults(vods) => {
+            app.loading = None;
+            let ls = App::make_kick_vod_list("VODs", vods, ListContext::KickVodActions);
+            app.push_screen(Screen::List(ls));
+        }
+
+        AppEvent::KickTopStreams(streams) => {
+            app.loading = None;
+            let ls =
+                App::make_kick_stream_list("Top Streams", streams, ListContext::KickStreamActions);
+            app.push_screen(Screen::List(ls));
+        }
+
+        AppEvent::KickCategoriesResults(categories) => {
+            app.loading = None;
+            let ls = App::make_kick_category_list(
+                "Categories",
+                categories,
+                ListContext::SelectKickCategory,
+            );
+            app.push_screen(Screen::List(ls));
+        }
+
         AppEvent::ChannelList {
             channels,
             context,
@@ -395,6 +435,9 @@ pub async fn handle_key(app: &mut App, mut key: event::KeyEvent) {
         Screen::TwitchMenu { selected } => {
             menus::handle_twitch_menu(app, key, selected).await;
         }
+        Screen::KickMenu { selected } => {
+            menus::handle_kick_menu(app, key, selected).await;
+        }
         Screen::PeertubeMenu { selected } => {
             menus::handle_peertube_menu(app, key, selected).await;
         }
@@ -415,6 +458,12 @@ pub async fn handle_key(app: &mut App, mut key: event::KeyEvent) {
         }
         Screen::TwitchVodActions(va) => {
             actions::handle_twitch_vod_actions(app, key, va).await;
+        }
+        Screen::KickStreamActions(sa) => {
+            actions::handle_kick_stream_actions(app, key, sa).await;
+        }
+        Screen::KickVodActions(va) => {
+            actions::handle_kick_vod_actions(app, key, va).await;
         }
         Screen::SearchInput(si) => {
             search::handle_search_input(app, key, si).await;

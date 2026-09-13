@@ -94,6 +94,23 @@ async fn execute_search(app: &mut App, input: String, ctx: SearchContext) {
             });
         }
 
+        SearchContext::KickSearch => {
+            let tx = app.tx.clone();
+            let q = input.clone();
+            let cfg = app.config.kick.clone();
+            app.loading = Some(format!("Searching Kick: {}…", input));
+            tokio::spawn(async move {
+                match crate::kick::search(&cfg, &q).await {
+                    Ok(streams) => {
+                        let _ = tx.send(AppEvent::KickSearchResults(streams));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(e.to_string()));
+                    }
+                }
+            });
+        }
+
         SearchContext::ExploreChannels => {
             let tx = app.tx.clone();
             let query = input.clone();

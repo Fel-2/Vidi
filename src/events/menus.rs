@@ -4,8 +4,8 @@ use crate::app::{
     App, AppEvent, ListContext, ListScreen, Screen, SearchContext, SearchInputScreen,
 };
 use crate::models::{ItemData, ListItem, Platform, SubFeedLoadMore};
-use crate::ui::{PEERTUBE_MENU_ITEMS, TWITCH_MENU_ITEMS, YOUTUBE_MENU_ITEMS};
-use crate::{config, peertube, player, twitch, youtube};
+use crate::ui::{KICK_MENU_ITEMS, PEERTUBE_MENU_ITEMS, TWITCH_MENU_ITEMS, YOUTUBE_MENU_ITEMS};
+use crate::{config, kick, peertube, player, twitch, youtube};
 use crossterm::event::{self, KeyCode};
 
 pub(super) const YOUTUBE_FEED_TITLE: &str = "Subscription Feed";
@@ -18,13 +18,14 @@ pub(super) async fn handle_mode_select(app: &mut App, key: event::KeyEvent, sele
             *app.current_screen_mut() = Screen::ModeSelect { selected: new };
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            let new = (selected + 1).min(2);
+            let new = (selected + 1).min(3);
             *app.current_screen_mut() = Screen::ModeSelect { selected: new };
         }
         KeyCode::Enter => match selected {
             0 => app.push_screen(Screen::YoutubeMenu { selected: 0 }),
             1 => app.push_screen(Screen::TwitchMenu { selected: 0 }),
-            2 => open_peertube(app),
+            2 => app.push_screen(Screen::KickMenu { selected: 0 }),
+            3 => open_peertube(app),
             _ => {}
         },
         KeyCode::Esc | KeyCode::Char('q') => {
@@ -366,6 +367,118 @@ async fn twitch_menu_action(app: &mut App, selected: usize) {
         "Edit Subs" => {
             let path = config::twitch_subs_file();
             let editor = app.config.twitch.editor.clone();
+            let _ = player::launch_external(&[&editor, &path.to_string_lossy()]).await;
+        }
+        _ => {}
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kick menu
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub(super) async fn handle_kick_menu(app: &mut App, key: event::KeyEvent, selected: usize) {
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            let new = selected.saturating_sub(1);
+            *app.current_screen_mut() = Screen::KickMenu { selected: new };
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            let new = (selected + 1).min(KICK_MENU_ITEMS.len() - 1);
+            *app.current_screen_mut() = Screen::KickMenu { selected: new };
+        }
+        KeyCode::Enter => {
+            kick_menu_action(app, selected).await;
+        }
+        KeyCode::Esc => {
+            app.pop_screen();
+        }
+        _ => {}
+    }
+}
+
+async fn kick_menu_action(app: &mut App, selected: usize) {
+    let cfg = app.config.kick.clone();
+    match KICK_MENU_ITEMS[selected] {
+        "Search Live" => {
+            app.push_screen(Screen::SearchInput(SearchInputScreen {
+                prompt: "Kick Search".to_string(),
+                input: String::new(),
+                context: SearchContext::KickSearch,
+            }));
+        }
+        "Live Subscriptions" => {
+            let subs = kick::load_kick_subs();
+            if subs.is_empty() {
+                app.set_error(
+                    "No Kick subscriptions found. Add channel names to ~/.config/vidi/kick_subs",
+                );
+                return;
+            }
+            let tx = app.tx.clone();
+            app.loading = Some("Checking subscriptions…".to_string());
+            tokio::spawn(async move {
+                match kick::fetch_subscriptions(&cfg).await {
+                    Ok(streams) => {
+                        let _ = tx.send(AppEvent::KickSubsResults(streams));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(e.to_string()));
+                    }
+                }
+            });
+        }
+        "Top Streams" => {
+            let tx = app.tx.clone();
+            app.loading = Some("Loading top streams…".to_string());
+            tokio::spawn(async move {
+                match kick::fetch_top_streams(&cfg, 40).await {
+                    Ok(streams) => {
+                        let _ = tx.send(AppEvent::KickTopStreams(streams));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(e.to_string()));
+                    }
+                }
+            });
+        }
+        "Browse Categories" => {
+            let tx = app.tx.clone();
+            app.loading = Some("Loading categories…".to_string());
+            tokio::spawn(async move {
+                match kick::fetch_categories(&cfg).await {
+                    Ok(categories) => {
+                        let _ = tx.send(AppEvent::KickCategoriesResults(categories));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::Error(e.to_string()));
+                    }
+                }
+            });
+        }
+        "Watch VODs" => {
+            let subs = kick::load_kick_subs();
+            if subs.is_empty() {
+                app.set_error("No Kick subscriptions found.");
+                return;
+            }
+            let items: Vec<ListItem> = subs
+                .into_iter()
+                .map(|u| ListItem {
+                    display: u.clone(),
+                    data: ItemData::Text(u),
+                })
+                .collect();
+            let ls = ListScreen::new(
+                "Select Channel for VODs",
+                items,
+                ListContext::SelectKickChannelForVods,
+            );
+            app.push_screen(Screen::List(ls));
+        }
+        "Edit Subs" => {
+            let path = config::kick_subs_file();
+            let editor = app.config.kick.editor.clone();
             let _ = player::launch_external(&[&editor, &path.to_string_lossy()]).await;
         }
         _ => {}

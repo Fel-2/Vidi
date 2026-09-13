@@ -27,6 +27,22 @@ pub fn trigger_preview_for_selected(app: &mut App, ls: &ListScreen) {
         ItemData::TwitchGame(ref g) if !g.box_art.is_empty() => {
             trigger_preview_raw(app, twitch_game_cache_key(&g.name), g.box_art.clone());
         }
+        ItemData::KickStream(ref s) => {
+            // Live: the stream thumbnail. Offline: the channel avatar.
+            let image = if s.is_live && !s.thumbnail.is_empty() {
+                Some(s.thumbnail.clone())
+            } else if !s.avatar.is_empty() {
+                Some(s.avatar.clone())
+            } else {
+                None
+            };
+            if let Some(url) = image {
+                trigger_preview_raw(app, kick_stream_cache_key(&s.slug), url);
+            }
+        }
+        ItemData::KickVod(ref v) if !v.thumbnail.is_empty() => {
+            trigger_preview_raw(app, kick_vod_cache_key(&v.id), v.thumbnail.clone());
+        }
         ItemData::Channel(ref c) => match c.avatar {
             Some(ref url) => trigger_preview_raw(app, channel_cache_key(&c.url), url.clone()),
             None => trigger_channel_preview(app, &c.url),
@@ -37,8 +53,22 @@ pub fn trigger_preview_for_selected(app: &mut App, ls: &ListScreen) {
 
 /// Cache key (and on-disk PNG filename stem) for a Twitch category box-art preview.
 pub fn twitch_game_cache_key(name: &str) -> String {
-    let id: String = name
-        .chars()
+    format!("twitchgame_{}", sanitize(name))
+}
+
+/// Cache key for a Kick live-stream thumbnail.
+pub fn kick_stream_cache_key(slug: &str) -> String {
+    format!("kick_{}", sanitize(slug))
+}
+
+/// Cache key for a Kick VOD thumbnail.
+pub fn kick_vod_cache_key(id: &str) -> String {
+    format!("kickvod_{}", sanitize(id))
+}
+
+/// Lowercase alphanumeric-safe token suitable for a cache filename stem.
+fn sanitize(s: &str) -> String {
+    s.chars()
         .map(|ch| {
             if ch.is_ascii_alphanumeric() {
                 ch.to_ascii_lowercase()
@@ -46,8 +76,7 @@ pub fn twitch_game_cache_key(name: &str) -> String {
                 '_'
             }
         })
-        .collect();
-    format!("twitchgame_{}", id)
+        .collect()
 }
 
 /// Cache key (and on-disk PNG filename stem) for a channel's avatar preview.
@@ -182,6 +211,11 @@ fn selected_video_id(app: &App) -> Option<String> {
                 ItemData::TwitchGame(g) if !g.box_art.is_empty() => {
                     Some(twitch_game_cache_key(&g.name))
                 }
+                ItemData::KickStream(s) => {
+                    let image = (s.is_live && !s.thumbnail.is_empty()) || !s.avatar.is_empty();
+                    image.then(|| kick_stream_cache_key(&s.slug))
+                }
+                ItemData::KickVod(v) if !v.thumbnail.is_empty() => Some(kick_vod_cache_key(&v.id)),
                 ItemData::Channel(c) => Some(channel_cache_key(&c.url)),
                 _ => None,
             };

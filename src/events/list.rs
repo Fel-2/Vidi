@@ -1,11 +1,12 @@
 //! Generic list screen: navigation, filtering, Load More, item selection.
 
 use crate::app::{
-    App, AppEvent, ChannelActionsScreen, ListContext, ListScreen, Screen, SearchContext,
-    SearchInputScreen, TwitchStreamActionsScreen, TwitchVodActionsScreen, VideoActionsScreen,
+    App, AppEvent, ChannelActionsScreen, KickStreamActionsScreen, KickVodActionsScreen,
+    ListContext, ListScreen, Screen, SearchContext, SearchInputScreen, TwitchStreamActionsScreen,
+    TwitchVodActionsScreen, VideoActionsScreen,
 };
 use crate::models::{ChannelTabLoadMore, ItemData, ListItem, Platform, SubFeedLoadMore, Video};
-use crate::{config, peertube, player, preview, twitch, youtube};
+use crate::{config, kick, peertube, player, preview, twitch, youtube};
 use crossterm::event::{self, KeyCode};
 
 /// Build the VOD-type chooser (Archives/Highlights/…) for a channel login.
@@ -23,6 +24,24 @@ pub(super) fn build_vod_type_list(login: &str) -> ListScreen {
         items,
         ListContext::SelectVodType(login.to_string()),
     )
+}
+
+/// Kick has a single VOD list, so this jumps straight to the fetch.
+pub(super) fn kick_vods_for(app: &mut App, slug: &str) {
+    let tx = app.tx.clone();
+    let cfg = app.config.kick.clone();
+    let slug = slug.to_string();
+    app.loading = Some(format!("Fetching VODs for {}…", slug));
+    tokio::spawn(async move {
+        match kick::fetch_vods(&cfg, &slug).await {
+            Ok(vods) => {
+                let _ = tx.send(AppEvent::KickVodsResults(vods));
+            }
+            Err(e) => {
+                let _ = tx.send(AppEvent::Error(e.to_string()));
+            }
+        }
+    });
 }
 
 /// Keep `selected` inside the viewport of `visible` rows.
@@ -320,6 +339,49 @@ async fn item_shortcut(app: &mut App, code: KeyCode, item: ListItem) {
             _ => {}
         },
 
+        ItemData::KickStream(stream) => {
+            let url = kick::kick_stream_url(&stream.slug);
+            match code {
+                KeyCode::Char('p') => {
+                    super::actions::watch_kick_stream(app, &stream, false).await;
+                }
+                KeyCode::Char('y') => copy(app, &url),
+                _ => {}
+            }
+        }
+
+        ItemData::KickVod(vod) => match code {
+            KeyCode::Char('p') => {
+                super::actions::watch_kick_vod(app, &vod).await;
+            }
+            KeyCode::Char('d') => {
+                let url = vod.url.clone();
+                let dl_dir = app.config.youtube.download_directory.clone();
+                let title = vod.title.clone();
+                let tx = app.tx.clone();
+                tokio::spawn(async move {
+                    let args = player::ytdlp_download_args(&url, &dl_dir);
+                    let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+                    let _ = tx.send(AppEvent::DownloadStarted(format!(
+                        "Downloading VOD: {}",
+                        title
+                    )));
+                    match player::run_background(&args_str).await {
+                        Ok(_) => {
+                            let _ = tx.send(AppEvent::StatusMessage(
+                                "VOD download complete.".to_string(),
+                            ));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppEvent::Error(format!("VOD download failed: {}", e)));
+                        }
+                    }
+                });
+            }
+            KeyCode::Char('y') => copy(app, &vod.url),
+            _ => {}
+        },
+
         ItemData::Channel(channel) if code == KeyCode::Char('y') => copy(app, &channel.url),
 
         _ => {}
@@ -517,6 +579,50 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
         ListContext::SelectChannelForVods => {
             if let ItemData::Text(user) = item.data {
                 app.push_screen(Screen::List(build_vod_type_list(&user)));
+            }
+        }
+
+        ListContext::SelectKickChannelForVods => {
+            if let ItemData::Text(slug) = item.data {
+                kick_vods_for(app, &slug);
+            }
+        }
+
+        ListContext::KickStreamActions => {
+            if let ItemData::KickStream(stream) = item.data {
+                app.push_screen(Screen::KickStreamActions(KickStreamActionsScreen {
+                    stream,
+                    selected: 0,
+                }));
+            }
+        }
+
+        ListContext::KickVodActions => {
+            if let ItemData::KickVod(vod) = item.data {
+                app.push_screen(Screen::KickVodActions(KickVodActionsScreen {
+                    vod,
+                    selected: 0,
+                }));
+            }
+        }
+
+        ListContext::SelectKickCategory => {
+            if let ItemData::KickCategory(category) = item.data {
+                let tx = app.tx.clone();
+                let cfg = app.config.kick.clone();
+                let name = category.name.clone();
+                let slug = category.slug.clone();
+                app.loading = Some(format!("Loading {}…", name));
+                tokio::spawn(async move {
+                    match kick::fetch_category_streams(&cfg, &slug, 40).await {
+                        Ok(streams) => {
+                            let _ = tx.send(AppEvent::KickTopStreams(streams));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppEvent::Error(e.to_string()));
+                        }
+                    }
+                });
             }
         }
 

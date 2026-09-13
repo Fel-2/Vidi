@@ -3,6 +3,7 @@ mod chat;
 mod config;
 mod events;
 mod innertube;
+mod kick;
 mod models;
 mod peertube;
 mod player;
@@ -40,7 +41,7 @@ async fn main() -> Result<()> {
         }
         Some("-h" | "--help") => {
             println!(
-                "vidi {}\nA terminal UI for YouTube, Twitch and PeerTube.\n\n\
+                "vidi {}\nA terminal UI for YouTube, Twitch, Kick and PeerTube.\n\n\
                  Usage: vidi [URL_OR_ID] [OPTIONS]\n\n\
                  Arguments:\n  \
                  URL_OR_ID      Play a YouTube video right away (watch?v=, youtu.be,\n                 \
@@ -68,6 +69,7 @@ async fn main() -> Result<()> {
 
     config::write_default_youtube_config().ok();
     config::write_default_twitch_config().ok();
+    config::write_default_kick_config().ok();
 
     let cfg = config::load_config().unwrap_or_default();
 
@@ -154,8 +156,11 @@ fn binary_exists(bin: &str) -> bool {
 fn check_dependencies(cfg: &config::Config) {
     // (binary, why it's needed)
     let mut checks: Vec<(&str, &str)> = vec![
-        ("yt-dlp", "YouTube/Twitch/PeerTube metadata and playback"),
-        ("streamlink", "Twitch live stream status and playback"),
+        (
+            "yt-dlp",
+            "YouTube/Twitch/Kick/PeerTube metadata and playback",
+        ),
+        ("streamlink", "Twitch/Kick live stream status and playback"),
     ];
     // Honour the configured player binaries instead of assuming mpv.
     let player = cfg
@@ -168,6 +173,10 @@ fn check_dependencies(cfg: &config::Config) {
     let twitch_player = cfg.twitch.player.split_whitespace().next().unwrap_or("mpv");
     if twitch_player != player {
         checks.push((twitch_player, "Twitch playback (PLAYER in twitch.conf)"));
+    }
+    let kick_player = cfg.kick.player.split_whitespace().next().unwrap_or("mpv");
+    if kick_player != player && kick_player != twitch_player {
+        checks.push((kick_player, "Kick playback (PLAYER in kick.conf)"));
     }
 
     let missing: Vec<(&str, &str)> = checks

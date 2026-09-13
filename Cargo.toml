@@ -3,7 +3,7 @@ name = "vidi"
 version = "0.5.0"
 edition = "2021"
 license = "MIT"
-description = "A terminal UI for YouTube, Twitch and PeerTube"
+description = "A terminal UI for YouTube, Twitch, Kick and PeerTube"
 repository = "https://codeberg.org/Fel/Vidi"
 
 [[bin]]

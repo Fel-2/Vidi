@@ -1,6 +1,6 @@
 # vidi
 
-A terminal UI for YouTube, Twitch and PeerTube, written in Rust.
+A terminal UI for YouTube, Twitch, Kick and PeerTube, written in Rust.
 
 ```
 ██╗░░██╗██╗██████╗░██╗
@@ -38,6 +38,14 @@ A terminal UI for YouTube, Twitch and PeerTube, written in Rust.
 - 🎬 VOD browsing via fast GQL (Past Broadcasts / Highlights / Uploads / Premieres), with view counts, durations and thumbnails — for subscribed channels or any stream you find; resumes where you left off; download with audio/quality options
 - 💬 Live chat viewer with real Twitch name colours and broadcaster/mod/vip/sub badges (auto-reconnects)
 
+**Kick**
+- 🔍 Live channel search
+- 💚 Subscription status for followed channels, with live/offline, uptime and thumbnails
+- 🔥 Top live streams (Kick directory)
+- 🗂 Browse categories → live streams per category
+- ➕ Follow / unfollow channels in-app (writes `kick_subs`)
+- 🎬 VOD browsing with durations and thumbnails; download or open in browser
+
 **PeerTube**
 - 🌐 Pick your instance on first use (prefilled, saved to `peertube.conf`, changeable any time from the menu)
 - 🔥 Trending and 🆕 Recently Added from your instance
@@ -59,7 +67,7 @@ A terminal UI for YouTube, Twitch and PeerTube, written in Rust.
 
 - [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
 - [`mpv`](https://mpv.io/)
-- [`streamlink`](https://streamlink.github.io/) — Twitch streams
+- [`streamlink`](https://streamlink.github.io/) — Twitch and Kick streams
 - `wl-clipboard`, `xclip` or `xsel` — copying URLs with `y` (optional)
 - A graphics-capable terminal for thumbnail previews: [Kitty](https://sw.kovidgoyal.net/kitty/), [Ghostty](https://ghostty.org/), [iTerm2](https://iterm2.com/), or [WezTerm](https://wezterm.org/) (optional)
 
@@ -104,6 +112,8 @@ Config files are created automatically on first run:
 | `~/.config/vidi/subscriptions` | YouTube channel URLs (one per line) |
 | `~/.config/vidi/twitch.conf` | Twitch player and quality settings |
 | `~/.config/vidi/twitch_subs` | Twitch usernames (one per line) |
+| `~/.config/vidi/kick.conf` | Kick player and quality settings |
+| `~/.config/vidi/kick_subs` | Kick channel names (one per line) |
 | `~/.config/vidi/peertube.conf` | PeerTube instance (`INSTANCE`, optional `SEARCH_INSTANCE`) |
 | `~/.config/vidi/peertube_subs` | PeerTube channels as `channel@instance` (one per line) |
 | `~/.config/vidi/custom_playlists.json` | Custom playlist URLs |
@@ -153,6 +163,14 @@ Single-key overrides can be set in `vidi.conf` (`KEY_UP`, `KEY_DOWN`, `KEY_SELEC
 `KEY_BACK`, `KEY_QUIT`, `KEY_PAGE_UP`, `KEY_PAGE_DOWN`). Arrow and vim keys always work.
 
 ## Troubleshooting
+
+### Kick VODs start from the live edge and cannot be scrubbed
+
+Kick serves recorded videos as a live-style HLS playlist, so mpv sees an
+unseekable stream: playback begins near the live edge and the position cannot be
+moved. `WATCH_PROGRESS` does not apply to Kick VODs for the same reason — the
+reported length is only the buffered window. Use **Download** to keep a copy you
+can seek through locally.
 
 ### A video occasionally fails to start
 

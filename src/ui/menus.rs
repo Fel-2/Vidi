@@ -42,6 +42,15 @@ const TWITCH_MENU_DISPLAY: &[&str] = &[
     "✏️  Edit Subs",
 ];
 
+const KICK_MENU_DISPLAY: &[&str] = &[
+    "🔍  Search Live",
+    "💚  Live Subscriptions",
+    "🔥  Top Streams",
+    "🗂  Browse Categories",
+    "🎬  Watch VODs",
+    "✏️  Edit Subs",
+];
+
 const PEERTUBE_MENU_DISPLAY: &[&str] = &[
     "🔥  Trending",
     "🆕  Recently Added",
@@ -57,7 +66,7 @@ const PEERTUBE_MENU_DISPLAY: &[&str] = &[
 
 pub(super) fn render_mode_select(f: &mut Frame, area: Rect, selected: usize) {
     let art_height = YV_ART.len() as u16;
-    let menu_items = ["📺  YouTube", "🟣  Twitch", "🐙  PeerTube"];
+    let menu_items = ["📺  YouTube", "🟣  Twitch", "🟢  Kick", "🐙  PeerTube"];
     let menu_height = menu_items.len() as u16;
     let gap: u16 = 1;
     let total_inner = art_height + 1 + gap + menu_height;
@@ -154,6 +163,37 @@ pub(super) fn render_twitch_menu(f: &mut Frame, area: Rect, selected: usize) {
             Style::default().fg(MAUVE).add_modifier(Modifier::BOLD),
         ))
         .border_style(Style::default().fg(MAUVE));
+
+    f.render_widget(List::new(items).block(block), area);
+}
+
+// ── Kick menu ─────────────────────────────────────────────────────────────────
+
+pub(super) fn render_kick_menu(f: &mut Frame, area: Rect, selected: usize) {
+    let items: Vec<ListItem> = KICK_MENU_DISPLAY
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            let style = if i == selected {
+                Style::default()
+                    .fg(super::GREEN)
+                    .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+            } else {
+                Style::default().fg(LAVENDER)
+            };
+            ListItem::new(format!("  {}  ", label)).style(style)
+        })
+        .collect();
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Span::styled(
+            " 🟢  Kick ",
+            Style::default()
+                .fg(super::GREEN)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .border_style(Style::default().fg(super::GREEN));
 
     f.render_widget(List::new(items).block(block), area);
 }

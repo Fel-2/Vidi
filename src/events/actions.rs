@@ -2,16 +2,19 @@
 //! stream/VOD actions.
 
 use crate::app::{
-    quality_options, App, AppEvent, ChannelActionsScreen, ChatScreen, ListContext,
-    QualitySelectScreen, Screen, SearchContext, SearchInputScreen, TwitchStreamActionsScreen,
-    TwitchVodActionsScreen, VideoActionsScreen,
+    quality_options, App, AppEvent, ChannelActionsScreen, ChatScreen, KickStreamActionsScreen,
+    KickVodActionsScreen, ListContext, QualitySelectScreen, Screen, SearchContext,
+    SearchInputScreen, TwitchStreamActionsScreen, TwitchVodActionsScreen, VideoActionsScreen,
 };
-use crate::models::{ChannelTabLoadMore, ItemData, Platform, TwitchStream, Video};
+use crate::models::{
+    ChannelTabLoadMore, ItemData, KickStream, KickVod, Platform, TwitchStream, Video,
+};
 use crate::ui::{
-    channel_action_items, peertube_channel_action_items, twitch_stream_action_items,
-    twitch_vod_action_items, VIDEO_ACTION_ITEMS,
+    channel_action_items, kick_stream_action_items, kick_vod_action_items,
+    peertube_channel_action_items, twitch_stream_action_items, twitch_vod_action_items,
+    VIDEO_ACTION_ITEMS,
 };
-use crate::{chat, peertube, player, twitch, youtube};
+use crate::{chat, kick, peertube, player, twitch, youtube};
 use crossterm::event::{self, KeyCode};
 
 use super::open_url_in_browser;
@@ -78,6 +81,42 @@ pub(super) async fn watch_live_stream(app: &mut App, stream: &TwitchStream, deta
     } else {
         let _ = player::launch_external(&args_str).await;
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kick playback
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Watch a live Kick stream through streamlink.
+pub(super) async fn watch_kick_stream(app: &mut App, stream: &KickStream, detached: bool) {
+    let url = kick::kick_stream_url(&stream.slug);
+    let quality = player::live_quality(&app.config.kick.quality);
+    let args = player::streamlink_args(&url, &quality, &app.config.kick.player);
+    let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    if detached {
+        player::spawn_detached(&args_str).ok();
+    } else {
+        let _ = player::launch_external(&args_str).await;
+    }
+}
+
+/// Watch a Kick VOD. Kick only serves live HLS, so this does not track
+/// resume progress.
+pub(super) async fn watch_kick_vod(app: &mut App, vod: &KickVod) {
+    let quality = player::live_quality(&app.config.kick.quality);
+    let resolved = player::resolve_stream_url(&vod.url, &quality).await;
+
+    let playback_url = match resolved {
+        Ok(url) => url,
+        Err(e) => {
+            app.set_error(format!("Could not resolve VOD: {}", e));
+            return;
+        }
+    };
+
+    let args = player::mpv_watch_args(&playback_url, &vod.title, &quality);
+    let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    let _ = player::launch_external(&args_str).await;
 }
 
 pub(super) async fn handle_video_actions(
@@ -616,6 +655,140 @@ pub(super) async fn handle_twitch_vod_actions(
                         .arg(&url)
                         .spawn()
                         .ok();
+                }
+                "Back" => {
+                    app.pop_screen();
+                }
+                _ => {}
+            }
+        }
+        KeyCode::Esc => {
+            app.pop_screen();
+        }
+        _ => {}
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kick stream actions
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub(super) async fn handle_kick_stream_actions(
+    app: &mut App,
+    key: event::KeyEvent,
+    mut sa: KickStreamActionsScreen,
+) {
+    let items = kick_stream_action_items(kick::is_followed(&sa.stream.slug));
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            if sa.selected > 0 {
+                sa.selected -= 1;
+            }
+            *app.current_screen_mut() = Screen::KickStreamActions(sa);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if sa.selected + 1 < items.len() {
+                sa.selected += 1;
+            }
+            *app.current_screen_mut() = Screen::KickStreamActions(sa);
+        }
+        KeyCode::Enter => {
+            let action = &items[sa.selected];
+            match action.as_str() {
+                "Watch Stream" => {
+                    watch_kick_stream(app, &sa.stream, false).await;
+                }
+                "Watch VODs" => {
+                    let slug = sa.stream.slug.clone();
+                    app.pop_screen();
+                    super::list::kick_vods_for(app, &slug);
+                }
+                "Follow" => {
+                    match kick::follow(&sa.stream.slug) {
+                        Ok(_) => app.set_success(format!("Followed {}", sa.stream.slug)),
+                        Err(e) => app.set_error(format!("Follow failed: {}", e)),
+                    }
+                    *app.current_screen_mut() = Screen::KickStreamActions(sa);
+                }
+                "Unfollow" => {
+                    match kick::unfollow(&sa.stream.slug) {
+                        Ok(_) => app.set_success(format!("Unfollowed {}", sa.stream.slug)),
+                        Err(e) => app.set_error(format!("Unfollow failed: {}", e)),
+                    }
+                    *app.current_screen_mut() = Screen::KickStreamActions(sa);
+                }
+                "Back" => {
+                    app.pop_screen();
+                }
+                _ => {}
+            }
+        }
+        KeyCode::Esc => {
+            app.pop_screen();
+        }
+        _ => {}
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kick VOD actions
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub(super) async fn handle_kick_vod_actions(
+    app: &mut App,
+    key: event::KeyEvent,
+    mut va: KickVodActionsScreen,
+) {
+    let items = kick_vod_action_items();
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            if va.selected > 0 {
+                va.selected -= 1;
+            }
+            *app.current_screen_mut() = Screen::KickVodActions(va);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if va.selected + 1 < items.len() {
+                va.selected += 1;
+            }
+            *app.current_screen_mut() = Screen::KickVodActions(va);
+        }
+        KeyCode::Enter => {
+            let action = &items[va.selected];
+            match action.as_str() {
+                "Watch VOD" => {
+                    watch_kick_vod(app, &va.vod).await;
+                }
+                "Download" => {
+                    let url = va.vod.url.clone();
+                    let dl_dir = app.config.youtube.download_directory.clone();
+                    let tx = app.tx.clone();
+                    let title = va.vod.title.clone();
+                    tokio::spawn(async move {
+                        let args = player::ytdlp_download_args(&url, &dl_dir);
+                        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+                        let _ = tx.send(AppEvent::DownloadStarted(format!(
+                            "Downloading VOD: {}",
+                            title
+                        )));
+                        match player::run_background(&args_str).await {
+                            Ok(_) => {
+                                let _ = tx.send(AppEvent::StatusMessage(
+                                    "VOD download complete.".to_string(),
+                                ));
+                            }
+                            Err(e) => {
+                                let _ = tx.send(AppEvent::Error(format!(
+                                    "VOD download failed: {} — {}",
+                                    title, e
+                                )));
+                            }
+                        }
+                    });
+                }
+                "Open in Browser" => {
+                    let url = va.vod.url.clone();
+                    open_url_in_browser(&url);
                 }
                 "Back" => {
                     app.pop_screen();

@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::models::{
-    Channel, ChannelTabLoadMore, CustomPlaylist, ItemData, ListItem, Platform, SubFeedLoadMore,
-    TwitchGame, TwitchStream, TwitchVod, Video,
+    Channel, ChannelTabLoadMore, CustomPlaylist, ItemData, KickCategory, KickStream, KickVod,
+    ListItem, Platform, SubFeedLoadMore, TwitchGame, TwitchStream, TwitchVod, Video,
 };
 use tokio::sync::mpsc;
 
@@ -22,6 +22,11 @@ pub enum AppEvent {
     TwitchVodsResults(Vec<TwitchVod>),
     TwitchTopStreams(Vec<TwitchStream>),
     TwitchGamesResults(Vec<TwitchGame>),
+    KickSearchResults(Vec<KickStream>),
+    KickSubsResults(Vec<KickStream>),
+    KickVodsResults(Vec<KickVod>),
+    KickTopStreams(Vec<KickStream>),
+    KickCategoriesResults(Vec<KickCategory>),
     ChannelList {
         channels: Vec<Channel>,
         context: ListContext,
@@ -86,13 +91,19 @@ pub enum ListContext {
     VideoActions,
     TwitchStreamActions,
     TwitchVodActions,
+    KickStreamActions,
+    KickVodActions,
     SelectChannelForVods,
+    /// Kick channel picker before the (single) VOD list.
+    SelectKickChannelForVods,
     /// Twitch VOD-type chooser for a given channel login (Archives/Highlights/…).
     SelectVodType(String),
     SelectChannelToBrowse,
     SelectPeertubeChannel,
     /// Twitch category list — selecting a game opens its live streams.
     SelectGameForStreams,
+    /// Kick category list — selecting one opens its live streams.
+    SelectKickCategory,
     CustomPlaylistActions,
     SearchHistory,
     Miscellaneous,
@@ -189,6 +200,7 @@ pub struct SearchInputScreen {
 pub enum SearchContext {
     YoutubeSearch,
     TwitchSearch,
+    KickSearch,
     ExploreChannels,
     ExplorePlaylists,
     PeertubeSearch,
@@ -251,10 +263,23 @@ pub struct TwitchVodActionsScreen {
 }
 
 #[derive(Debug, Clone)]
+pub struct KickStreamActionsScreen {
+    pub stream: KickStream,
+    pub selected: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct KickVodActionsScreen {
+    pub vod: KickVod,
+    pub selected: usize,
+}
+
+#[derive(Debug, Clone)]
 pub enum Screen {
     ModeSelect { selected: usize },
     YoutubeMenu { selected: usize },
     TwitchMenu { selected: usize },
+    KickMenu { selected: usize },
     PeertubeMenu { selected: usize },
     List(ListScreen),
     VideoActions(VideoActionsScreen),
@@ -262,6 +287,8 @@ pub enum Screen {
     ChannelActions(ChannelActionsScreen),
     TwitchStreamActions(TwitchStreamActionsScreen),
     TwitchVodActions(TwitchVodActionsScreen),
+    KickStreamActions(KickStreamActionsScreen),
+    KickVodActions(KickVodActionsScreen),
     SearchInput(SearchInputScreen),
     TwitchChat(ChatScreen),
 }
@@ -461,23 +488,36 @@ impl App {
         let items = streams
             .into_iter()
             .map(|s| {
-                let status = if s.is_live { "LIVE" } else { "OFF " };
-                let meta = if s.is_live && !s.uptime.is_empty() {
-                    format!("{:>6} 👁 {:>7} up", s.viewers, s.uptime)
-                } else {
-                    format!("{:>6} viewers", s.viewers)
-                };
-                let display = format!(
-                    "{} {:<16} | {:<18} | {:<20} | {}",
-                    status,
-                    meta,
-                    truncate(&s.login, 18),
-                    truncate(&s.game, 20),
-                    truncate(&s.title, 50)
-                );
+                let display =
+                    stream_display(s.is_live, s.viewers, &s.uptime, &s.login, &s.game, &s.title);
                 ListItem {
                     display,
                     data: ItemData::TwitchStream(s),
+                }
+            })
+            .collect();
+        ListScreen::new(title, items, context)
+    }
+
+    pub fn make_kick_stream_list(
+        title: impl Into<String>,
+        streams: Vec<KickStream>,
+        context: ListContext,
+    ) -> ListScreen {
+        let items = streams
+            .into_iter()
+            .map(|s| {
+                let display = stream_display(
+                    s.is_live,
+                    s.viewers,
+                    &s.uptime,
+                    &s.slug,
+                    &s.category,
+                    &s.title,
+                );
+                ListItem {
+                    display,
+                    data: ItemData::KickStream(s),
                 }
             })
             .collect();
@@ -510,18 +550,7 @@ impl App {
         let items = vods
             .into_iter()
             .map(|v| {
-                let views = if v.view_count > 0 {
-                    format!("{:>8} 👁", v.view_count)
-                } else {
-                    " ".repeat(10)
-                };
-                let display = format!(
-                    "{:<10} | {:>9} | {} | {}",
-                    v.upload_date,
-                    truncate(&v.duration, 9),
-                    views,
-                    truncate(&v.title, 70)
-                );
+                let display = vod_display(&v.upload_date, &v.duration, v.view_count, &v.title);
                 ListItem {
                     display,
                     data: ItemData::TwitchVod(v),
@@ -530,6 +559,83 @@ impl App {
             .collect();
         ListScreen::new(title, items, context)
     }
+
+    pub fn make_kick_vod_list(
+        title: impl Into<String>,
+        vods: Vec<KickVod>,
+        context: ListContext,
+    ) -> ListScreen {
+        let items = vods
+            .into_iter()
+            .map(|v| {
+                let display = vod_display(&v.upload_date, &v.duration, v.view_count, &v.title);
+                ListItem {
+                    display,
+                    data: ItemData::KickVod(v),
+                }
+            })
+            .collect();
+        ListScreen::new(title, items, context)
+    }
+
+    pub fn make_kick_category_list(
+        title: impl Into<String>,
+        categories: Vec<KickCategory>,
+        context: ListContext,
+    ) -> ListScreen {
+        let items = categories
+            .into_iter()
+            .map(|c| {
+                let display = format!("{}  {}", c.icon, truncate(&c.name, 60));
+                ListItem {
+                    display,
+                    data: ItemData::KickCategory(c),
+                }
+            })
+            .collect();
+        ListScreen::new(title, items, context)
+    }
+}
+
+/// Shared row layout for live-stream lists (Twitch and Kick).
+fn stream_display(
+    is_live: bool,
+    viewers: u64,
+    uptime: &str,
+    channel: &str,
+    category: &str,
+    title: &str,
+) -> String {
+    let status = if is_live { "LIVE" } else { "OFF " };
+    let meta = if is_live && !uptime.is_empty() {
+        format!("{:>6} 👁 {:>7} up", viewers, uptime)
+    } else {
+        format!("{:>6} viewers", viewers)
+    };
+    format!(
+        "{} {:<16} | {:<18} | {:<20} | {}",
+        status,
+        meta,
+        truncate(channel, 18),
+        truncate(category, 20),
+        truncate(title, 50)
+    )
+}
+
+/// Shared row layout for VOD lists (Twitch and Kick).
+fn vod_display(upload_date: &str, duration: &str, view_count: u64, title: &str) -> String {
+    let views = if view_count > 0 {
+        format!("{:>8} 👁", view_count)
+    } else {
+        " ".repeat(10)
+    };
+    format!(
+        "{:<10} | {:>9} | {} | {}",
+        upload_date,
+        truncate(duration, 9),
+        views,
+        truncate(title, 70)
+    )
 }
 
 /// Resolution options offered by the quality picker, highest first.

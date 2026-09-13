@@ -56,6 +56,15 @@ pub const TWITCH_MENU_ITEMS: &[&str] = &[
     "Edit Subs",
 ];
 
+pub const KICK_MENU_ITEMS: &[&str] = &[
+    "Search Live",
+    "Live Subscriptions",
+    "Top Streams",
+    "Browse Categories",
+    "Watch VODs",
+    "Edit Subs",
+];
+
 pub const PEERTUBE_MENU_ITEMS: &[&str] = &[
     "Trending",
     "Recently Added",
@@ -141,6 +150,29 @@ pub fn twitch_stream_action_items(followed: bool) -> Vec<String> {
 }
 
 pub fn twitch_vod_action_items() -> Vec<String> {
+    vec![
+        "Watch VOD".to_string(),
+        "Download".to_string(),
+        "Open in Browser".to_string(),
+        "Back".to_string(),
+    ]
+}
+
+/// Kick has no chat in vidi, so its stream menu omits the chat entries.
+pub fn kick_stream_action_items(followed: bool) -> Vec<String> {
+    vec![
+        "Watch Stream".to_string(),
+        "Watch VODs".to_string(),
+        if followed {
+            "Unfollow".to_string()
+        } else {
+            "Follow".to_string()
+        },
+        "Back".to_string(),
+    ]
+}
+
+pub fn kick_vod_action_items() -> Vec<String> {
     vec![
         "Watch VOD".to_string(),
         "Download".to_string(),
@@ -278,6 +310,7 @@ fn screen_emoji_and_title(screen: &Screen) -> (&'static str, &'static str) {
         Screen::ModeSelect { .. } => ("🎬", "Mode Select"),
         Screen::YoutubeMenu { .. } => ("📺", "YouTube"),
         Screen::TwitchMenu { .. } => ("🟣", "Twitch"),
+        Screen::KickMenu { .. } => ("🟢", "Kick"),
         Screen::PeertubeMenu { .. } => ("🐙", "PeerTube"),
         Screen::List(_) => ("📋", "List"),
         Screen::VideoActions(_) => ("🎬", "Video Actions"),
@@ -285,6 +318,8 @@ fn screen_emoji_and_title(screen: &Screen) -> (&'static str, &'static str) {
         Screen::ChannelActions(_) => ("📋", "Channel"),
         Screen::TwitchStreamActions(_) => ("🟣", "Stream Actions"),
         Screen::TwitchVodActions(_) => ("🎬", "VOD Actions"),
+        Screen::KickStreamActions(_) => ("🟢", "Stream Actions"),
+        Screen::KickVodActions(_) => ("🎬", "VOD Actions"),
         Screen::SearchInput(_) => ("🔍", "Search"),
         Screen::TwitchChat(_) => ("💬", "Twitch Chat"),
     }
@@ -298,6 +333,7 @@ fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
         Screen::ModeSelect { selected } => menus::render_mode_select(f, area, selected),
         Screen::YoutubeMenu { selected } => menus::render_youtube_menu(f, area, selected),
         Screen::TwitchMenu { selected } => menus::render_twitch_menu(f, area, selected),
+        Screen::KickMenu { selected } => menus::render_kick_menu(f, area, selected),
         Screen::PeertubeMenu { selected } => menus::render_peertube_menu(f, area, selected),
         Screen::List(_) => {
             let ls = match app.current_screen().clone() {
@@ -381,6 +417,34 @@ fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
             let title = format!("🎬  VOD: {}", va.vod.title);
             menus::render_action_menu_string(f, area, &title, &labels, va.selected, MAUVE, MAUVE);
         }
+        Screen::KickStreamActions(ref sa) => {
+            let follow_label = if crate::kick::is_followed(&sa.stream.slug) {
+                "💔  Unfollow"
+            } else {
+                "➕  Follow"
+            };
+            let labels: Vec<String> = vec![
+                "📺  Watch Stream".to_string(),
+                "🎞  Watch VODs".to_string(),
+                follow_label.to_string(),
+                "←  Back".to_string(),
+            ];
+            let title = format!(
+                "🟢  Stream: {} | {} | {}",
+                sa.stream.slug, sa.stream.category, sa.stream.title
+            );
+            menus::render_action_menu_string(f, area, &title, &labels, sa.selected, GREEN, GREEN);
+        }
+        Screen::KickVodActions(ref va) => {
+            let labels: Vec<String> = vec![
+                "▶️  Watch VOD".to_string(),
+                "⬇️  Download".to_string(),
+                "🌐  Open in Browser".to_string(),
+                "←  Back".to_string(),
+            ];
+            let title = format!("🎬  VOD: {}", va.vod.title);
+            menus::render_action_menu_string(f, area, &title, &labels, va.selected, GREEN, GREEN);
+        }
         Screen::SearchInput(ref si) => actions::render_search_input(f, area, &si.prompt, &si.input),
         Screen::TwitchChat(ref cs) => chat_screen::render_chat(f, area, cs),
     }
@@ -450,6 +514,7 @@ fn keybind_hints(screen: &Screen) -> String {
         Screen::ModeSelect { .. }
         | Screen::YoutubeMenu { .. }
         | Screen::TwitchMenu { .. }
+        | Screen::KickMenu { .. }
         | Screen::PeertubeMenu { .. } => "↑↓ navigate   ↵ select   ? help   q quit".to_string(),
         Screen::List(ls) if ls.filter_active => {
             "Type to filter   ↵ keep   ⎋ clear   ^W word   ^U line".to_string()
@@ -469,7 +534,9 @@ fn keybind_hints(screen: &Screen) -> String {
         | Screen::QualitySelect(_)
         | Screen::ChannelActions(_)
         | Screen::TwitchStreamActions(_)
-        | Screen::TwitchVodActions(_) => "↑↓ navigate   ↵ select   ⎋ back".to_string(),
+        | Screen::TwitchVodActions(_)
+        | Screen::KickStreamActions(_)
+        | Screen::KickVodActions(_) => "↑↓ navigate   ↵ select   ⎋ back".to_string(),
         Screen::SearchInput(_) => "Type query   ↵ submit   ⎋ cancel".to_string(),
         Screen::TwitchChat(_) => "↑↓ scroll   ⎋/q exit".to_string(),
     }
@@ -486,9 +553,18 @@ pub(crate) fn item_style_for_data(data: &ItemData) -> Style {
                 Style::default().fg(OVERLAY)
             }
         }
+        ItemData::KickStream(s) => {
+            if s.is_live {
+                Style::default().fg(GREEN).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(OVERLAY)
+            }
+        }
         ItemData::Video(_) => Style::default().fg(TEXT),
         ItemData::TwitchVod(_) => Style::default().fg(SUBTEXT),
         ItemData::TwitchGame(_) => Style::default().fg(MAUVE),
+        ItemData::KickVod(_) => Style::default().fg(SUBTEXT),
+        ItemData::KickCategory(_) => Style::default().fg(GREEN),
         ItemData::Channel(_) => Style::default().fg(SUBTEXT),
         ItemData::CustomPlaylist(_) => Style::default().fg(SUBTEXT),
         ItemData::Text(_) => Style::default().fg(SUBTEXT),
