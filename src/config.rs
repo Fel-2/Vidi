@@ -153,13 +153,112 @@ pub struct Keybindings {
     pub page_down: Option<char>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub youtube: YoutubeConfig,
     pub twitch: TwitchConfig,
     pub kick: KickConfig,
     pub peertube: PeertubeConfig,
     pub keys: Keybindings,
+    /// Platforms shown on the start screen, in menu order.
+    pub platforms: Vec<MenuPlatform>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            youtube: YoutubeConfig::default(),
+            twitch: TwitchConfig::default(),
+            kick: KickConfig::default(),
+            peertube: PeertubeConfig::default(),
+            keys: Keybindings::default(),
+            platforms: MenuPlatform::ALL.to_vec(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Platform selection
+// ---------------------------------------------------------------------------
+
+/// A platform that can be shown or hidden on the start screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuPlatform {
+    Youtube,
+    Twitch,
+    Kick,
+    Peertube,
+}
+
+impl MenuPlatform {
+    /// Every platform, in menu order. This is the default set.
+    pub const ALL: [MenuPlatform; 4] = [
+        MenuPlatform::Youtube,
+        MenuPlatform::Twitch,
+        MenuPlatform::Kick,
+        MenuPlatform::Peertube,
+    ];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            MenuPlatform::Youtube => "youtube",
+            MenuPlatform::Twitch => "twitch",
+            MenuPlatform::Kick => "kick",
+            MenuPlatform::Peertube => "peertube",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MenuPlatform::Youtube => "📺  YouTube",
+            MenuPlatform::Twitch => "🟣  Twitch",
+            MenuPlatform::Kick => "🟢  Kick",
+            MenuPlatform::Peertube => "🐙  PeerTube",
+        }
+    }
+
+    /// Comma-separated list of every valid `PLATFORMS` value, for config docs.
+    pub fn all_keys() -> String {
+        MenuPlatform::ALL
+            .iter()
+            .map(|p| p.key())
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    fn from_key(s: &str) -> Option<MenuPlatform> {
+        match s.trim().to_lowercase().as_str() {
+            "youtube" | "yt" => Some(MenuPlatform::Youtube),
+            "twitch" => Some(MenuPlatform::Twitch),
+            "kick" => Some(MenuPlatform::Kick),
+            "peertube" | "pt" => Some(MenuPlatform::Peertube),
+            _ => None,
+        }
+    }
+}
+
+/// Parse a `PLATFORMS` value into the enabled set, preserving menu order.
+///
+/// An empty or entirely unrecognised value means "all platforms", so a typo
+/// never leaves the user with an unreachable app.
+pub fn parse_platforms(value: &str) -> Vec<MenuPlatform> {
+    let wanted: Vec<MenuPlatform> = value
+        .split(',')
+        .filter_map(MenuPlatform::from_key)
+        .collect();
+    if wanted.is_empty() {
+        return MenuPlatform::ALL.to_vec();
+    }
+    MenuPlatform::ALL
+        .into_iter()
+        .filter(|p| wanted.contains(p))
+        .collect()
+}
+
+impl Config {
+    pub fn platform_enabled(&self, p: MenuPlatform) -> bool {
+        self.platforms.contains(&p)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -485,7 +584,19 @@ pub fn load_config() -> Result<Config> {
         kick: load_kick_config()?,
         peertube: load_peertube_config().unwrap_or_default(),
         keys: load_keybindings(),
+        platforms: load_platforms(),
     })
+}
+
+/// Read `PLATFORMS` from vidi.conf. Absent or unparseable → all platforms.
+fn load_platforms() -> Vec<MenuPlatform> {
+    let Ok(content) = std::fs::read_to_string(youtube_config_file()) else {
+        return MenuPlatform::ALL.to_vec();
+    };
+    match parse_kv(&content, "PLATFORMS") {
+        Some(v) => parse_platforms(&v),
+        None => MenuPlatform::ALL.to_vec(),
+    }
 }
 
 fn shellexpand_tilde(s: &str) -> String {
@@ -527,6 +638,9 @@ pub fn write_default_youtube_config() -> Result<()> {
          SHOW_SHORTS: false\n\
          # Check for a newer release on launch and offer to install it:\n\
          CHECK_UPDATES: true\n\
+         # Platforms shown on the start screen (comma-separated).\n\
+         # Valid: {}. Omit this line to show all:\n\
+         PLATFORMS: {}\n\
          # Optional single-key overrides (arrows + vim keys always work):\n\
          # KEY_UP: k\n\
          # KEY_DOWN: j\n\
@@ -536,7 +650,9 @@ pub fn write_default_youtube_config() -> Result<()> {
          # KEY_PAGE_UP: u\n\
          # KEY_PAGE_DOWN: d\n",
         std::env::var("EDITOR").unwrap_or_else(|_| "nano".into()),
-        download_dir.display()
+        download_dir.display(),
+        MenuPlatform::all_keys(),
+        MenuPlatform::all_keys(),
     );
     std::fs::write(path, content)?;
     Ok(())
@@ -667,5 +783,69 @@ mod tests {
         assert_eq!(cfg.quality, "best");
         assert!(!cfg.enable_preview);
         assert!(cfg.user_agent.contains("Mozilla"));
+    }
+
+    // ── Platform selection ──────────────────────────────────────────────
+
+    #[test]
+    fn platforms_default_to_all_four() {
+        assert_eq!(parse_platforms(""), MenuPlatform::ALL.to_vec());
+        assert_eq!(Config::default().platforms, MenuPlatform::ALL.to_vec());
+    }
+
+    #[test]
+    fn platforms_parse_subset_in_menu_order() {
+        // Requested out of order; result must follow menu order.
+        assert_eq!(
+            parse_platforms("kick,youtube"),
+            vec![MenuPlatform::Youtube, MenuPlatform::Kick]
+        );
+    }
+
+    #[test]
+    fn platforms_accept_aliases_and_whitespace_and_case() {
+        assert_eq!(
+            parse_platforms(" YT , PT "),
+            vec![MenuPlatform::Youtube, MenuPlatform::Peertube]
+        );
+    }
+
+    #[test]
+    fn platforms_unknown_value_falls_back_to_all() {
+        // A typo must never leave the user with an unreachable app.
+        assert_eq!(parse_platforms("nonsense"), MenuPlatform::ALL.to_vec());
+        assert_eq!(
+            parse_platforms("youtube,nonsense"),
+            vec![MenuPlatform::Youtube]
+        );
+    }
+
+    #[test]
+    fn platforms_dedupe_repeats() {
+        assert_eq!(
+            parse_platforms("twitch,twitch,twitch"),
+            vec![MenuPlatform::Twitch]
+        );
+    }
+
+    #[test]
+    fn platform_enabled_reflects_parsed_set() {
+        let cfg = Config {
+            platforms: parse_platforms("twitch,kick"),
+            ..Config::default()
+        };
+        assert!(cfg.platform_enabled(MenuPlatform::Twitch));
+        assert!(cfg.platform_enabled(MenuPlatform::Kick));
+        assert!(!cfg.platform_enabled(MenuPlatform::Youtube));
+        assert!(!cfg.platform_enabled(MenuPlatform::Peertube));
+    }
+
+    #[test]
+    fn platforms_keys_are_unique() {
+        let mut keys: Vec<&str> = MenuPlatform::ALL.iter().map(|p| p.key()).collect();
+        let before = keys.len();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), before);
     }
 }

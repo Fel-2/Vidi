@@ -108,7 +108,7 @@ Config files are created automatically on first run:
 
 | File | Purpose |
 |------|---------|
-| `~/.config/vidi/vidi.conf` | Player, quality, result limits, `WATCH_PROGRESS`, `SPONSORBLOCK`, `CHECK_UPDATES` |
+| `~/.config/vidi/vidi.conf` | Player, quality, result limits, `PLATFORMS`, `WATCH_PROGRESS`, `SPONSORBLOCK`, `CHECK_UPDATES` |
 | `~/.config/vidi/subscriptions` | YouTube channel URLs (one per line) |
 | `~/.config/vidi/twitch.conf` | Twitch player and quality settings |
 | `~/.config/vidi/twitch_subs` | Twitch usernames (one per line) |
@@ -123,6 +123,19 @@ and a display name (`https://www.youtube.com/channel/UC…  My Channel`). Provid
 the name inline lets the Channels view skip the per-channel `yt-dlp` lookup, so it
 loads instantly. Lines without a name are resolved once and cached in
 `~/.cache/vidi/channel_names.json`.
+
+`PLATFORMS` in `vidi.conf` controls which platforms appear on the start screen.
+It takes a comma-separated list of `youtube`, `twitch`, `kick` and `peertube`
+(aliases `yt` and `pt` work, case and spaces are ignored):
+
+```
+PLATFORMS: youtube,kick
+```
+
+Omitting the key shows all four, and an unrecognised value falls back to all
+four rather than leaving you with an empty menu. Hiding a platform only removes
+its menu — its config, subscriptions and history are left untouched, so
+re-enabling restores everything.
 
 `peertube_subs` stores each channel with its home instance (`blender_studio@video.blender.org`);
 channel URLs work too and are normalised on read. Because the handle carries the origin,

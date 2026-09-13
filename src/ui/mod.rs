@@ -330,7 +330,9 @@ fn screen_emoji_and_title(screen: &Screen) -> (&'static str, &'static str) {
 fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
     let screen = app.current_screen().clone();
     match screen {
-        Screen::ModeSelect { selected } => menus::render_mode_select(f, area, selected),
+        Screen::ModeSelect { selected } => {
+            menus::render_mode_select(f, area, selected, &app.config.platforms)
+        }
         Screen::YoutubeMenu { selected } => menus::render_youtube_menu(f, area, selected),
         Screen::TwitchMenu { selected } => menus::render_twitch_menu(f, area, selected),
         Screen::KickMenu { selected } => menus::render_kick_menu(f, area, selected),

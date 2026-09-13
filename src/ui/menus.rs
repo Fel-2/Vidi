@@ -64,9 +64,14 @@ const PEERTUBE_MENU_DISPLAY: &[&str] = &[
 
 // ── Mode select ───────────────────────────────────────────────────────────────
 
-pub(super) fn render_mode_select(f: &mut Frame, area: Rect, selected: usize) {
+pub(super) fn render_mode_select(
+    f: &mut Frame,
+    area: Rect,
+    selected: usize,
+    platforms: &[crate::config::MenuPlatform],
+) {
     let art_height = YV_ART.len() as u16;
-    let menu_items = ["📺  YouTube", "🟣  Twitch", "🟢  Kick", "🐙  PeerTube"];
+    let menu_items: Vec<&str> = platforms.iter().map(|p| p.label()).collect();
     let menu_height = menu_items.len() as u16;
     let gap: u16 = 1;
     let total_inner = art_height + 1 + gap + menu_height;
@@ -270,7 +275,7 @@ mod tests {
     fn mode_select_shows_version() {
         let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
         terminal
-            .draw(|f| render_mode_select(f, f.area(), 0))
+            .draw(|f| render_mode_select(f, f.area(), 0, &crate::config::MenuPlatform::ALL))
             .unwrap();
         let text: String = terminal
             .backend()

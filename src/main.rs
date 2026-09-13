@@ -154,14 +154,15 @@ fn binary_exists(bin: &str) -> bool {
 /// Warn (to stderr) about missing external tools. Does not abort: the user may
 /// only use a subset of features, or have a custom player configured.
 fn check_dependencies(cfg: &config::Config) {
+    use config::MenuPlatform;
     // (binary, why it's needed)
-    let mut checks: Vec<(&str, &str)> = vec![
-        (
-            "yt-dlp",
-            "YouTube/Twitch/Kick/PeerTube metadata and playback",
-        ),
-        ("streamlink", "Twitch/Kick live stream status and playback"),
-    ];
+    let mut checks: Vec<(&str, &str)> = vec![(
+        "yt-dlp",
+        "YouTube/Twitch/Kick/PeerTube metadata and playback",
+    )];
+    if cfg.platform_enabled(MenuPlatform::Twitch) || cfg.platform_enabled(MenuPlatform::Kick) {
+        checks.push(("streamlink", "Twitch/Kick live stream status and playback"));
+    }
     // Honour the configured player binaries instead of assuming mpv.
     let player = cfg
         .youtube
@@ -169,13 +170,18 @@ fn check_dependencies(cfg: &config::Config) {
         .split_whitespace()
         .next()
         .unwrap_or("mpv");
-    checks.push((player, "video playback (PLAYER in vidi.conf)"));
+    if cfg.platform_enabled(MenuPlatform::Youtube) {
+        checks.push((player, "video playback (PLAYER in vidi.conf)"));
+    }
     let twitch_player = cfg.twitch.player.split_whitespace().next().unwrap_or("mpv");
-    if twitch_player != player {
+    if cfg.platform_enabled(MenuPlatform::Twitch) && twitch_player != player {
         checks.push((twitch_player, "Twitch playback (PLAYER in twitch.conf)"));
     }
     let kick_player = cfg.kick.player.split_whitespace().next().unwrap_or("mpv");
-    if kick_player != player && kick_player != twitch_player {
+    if cfg.platform_enabled(MenuPlatform::Kick)
+        && kick_player != player
+        && kick_player != twitch_player
+    {
         checks.push((kick_player, "Kick playback (PLAYER in kick.conf)"));
     }
 

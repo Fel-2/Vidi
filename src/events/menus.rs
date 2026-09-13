@@ -3,6 +3,7 @@
 use crate::app::{
     App, AppEvent, ListContext, ListScreen, Screen, SearchContext, SearchInputScreen,
 };
+use crate::config::MenuPlatform;
 use crate::models::{ItemData, ListItem, Platform, SubFeedLoadMore};
 use crate::ui::{KICK_MENU_ITEMS, PEERTUBE_MENU_ITEMS, TWITCH_MENU_ITEMS, YOUTUBE_MENU_ITEMS};
 use crate::{config, kick, peertube, player, twitch, youtube};
@@ -12,22 +13,27 @@ pub(super) const YOUTUBE_FEED_TITLE: &str = "Subscription Feed";
 pub(super) const PEERTUBE_FEED_TITLE: &str = "PeerTube Feed";
 
 pub(super) async fn handle_mode_select(app: &mut App, key: event::KeyEvent, selected: usize) {
+    let last = app.config.platforms.len().saturating_sub(1);
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
             let new = selected.saturating_sub(1);
             *app.current_screen_mut() = Screen::ModeSelect { selected: new };
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            let new = (selected + 1).min(3);
+            let new = (selected + 1).min(last);
             *app.current_screen_mut() = Screen::ModeSelect { selected: new };
         }
-        KeyCode::Enter => match selected {
-            0 => app.push_screen(Screen::YoutubeMenu { selected: 0 }),
-            1 => app.push_screen(Screen::TwitchMenu { selected: 0 }),
-            2 => app.push_screen(Screen::KickMenu { selected: 0 }),
-            3 => open_peertube(app),
-            _ => {}
-        },
+        KeyCode::Enter => {
+            let Some(&platform) = app.config.platforms.get(selected) else {
+                return;
+            };
+            match platform {
+                MenuPlatform::Youtube => app.push_screen(Screen::YoutubeMenu { selected: 0 }),
+                MenuPlatform::Twitch => app.push_screen(Screen::TwitchMenu { selected: 0 }),
+                MenuPlatform::Kick => app.push_screen(Screen::KickMenu { selected: 0 }),
+                MenuPlatform::Peertube => open_peertube(app),
+            }
+        }
         KeyCode::Esc | KeyCode::Char('q') => {
             app.should_quit = true;
         }
