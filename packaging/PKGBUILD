@@ -1,6 +1,6 @@
 # Maintainer: Fel <exwin00@proton.me>
 pkgname=vidi-git
-pkgver=0.5.0
+pkgver=0.6.0
 pkgrel=1
 pkgdesc="Terminal UI for YouTube, Twitch, Kick and PeerTube"
 arch=('x86_64' 'aarch64')
