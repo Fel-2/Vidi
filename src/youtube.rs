@@ -426,17 +426,38 @@ pub async fn fetch_subscription_feed(
         }
     }
     let names = std::sync::Arc::new(names);
+    let resolved: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
 
     for url in subs {
         let sem = sem.clone();
         let cutoff = cutoff_date.clone();
         let names = names.clone();
+        let resolved = resolved.clone();
         set.spawn(async move {
             let _permit = sem.acquire_owned().await.ok();
-            let tab_url = format!("{}/videos", url.trim_end_matches('/'));
+            let key = url.trim_end_matches('/').to_string();
+            let tab_url = format!("{}/videos", key);
             match fetch_playlist(&tab_url, playlist_end).await {
                 Ok(mut videos) => {
-                    if let Some(name) = names.get(url.trim_end_matches('/')) {
+                    let mut name = names.get(&key).cloned();
+                    if name.is_none() && videos.iter().any(|v| v.channel.is_empty()) {
+                        if let Ok((meta, _)) = crate::innertube::channel_meta(&url).await {
+                            if !meta.is_empty() {
+                                if let Ok(mut r) = resolved.lock() {
+                                    r.insert(key.clone(), meta.clone());
+                                }
+                                name = Some(meta);
+                            }
+                        }
+                    }
+                    let name = name.or_else(|| {
+                        url.trim_end_matches('/')
+                            .rsplit('/')
+                            .next()
+                            .map(|s| s.to_string())
+                    });
+                    if let Some(name) = name {
                         for v in &mut videos {
                             if v.channel.is_empty() {
                                 v.channel = name.clone();
@@ -460,6 +481,16 @@ pub async fn fetch_subscription_feed(
     while let Some(result) = set.join_next().await {
         if let Ok(videos) = result {
             all.extend(videos);
+        }
+    }
+
+    if let Ok(resolved) = resolved.lock() {
+        if !resolved.is_empty() {
+            let mut cache = load_channel_name_cache();
+            for (key, name) in resolved.iter() {
+                cache.insert(key.clone(), name.clone());
+            }
+            save_channel_name_cache(&cache);
         }
     }
 
