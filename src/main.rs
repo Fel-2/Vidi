@@ -104,6 +104,11 @@ async fn main() -> Result<()> {
         app.watched_ids.insert(v.id.clone());
     }
 
+    {
+        let dir = config::youtube_preview_cache_dir();
+        tokio::task::spawn_blocking(move || preview::prune_thumbnail_cache(&dir));
+    }
+
     if app.config.youtube.check_updates {
         let tx = app.tx.clone();
         tokio::spawn(async move {

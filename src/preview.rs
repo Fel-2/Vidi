@@ -203,6 +203,75 @@ const PLACEHOLDER_DIMS: (u32, u32) = (120, 90);
 
 pub const RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_secs(60);
 
+const CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
+const CACHE_MAX_FILES: usize = 4000;
+const CACHE_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(90 * 86400);
+
+pub fn prune_thumbnail_cache(dir: &std::path::Path) -> (usize, u64) {
+    prune_with(dir, CACHE_MAX_AGE, CACHE_MAX_FILES, CACHE_MAX_BYTES)
+}
+
+fn prune_with(
+    dir: &std::path::Path,
+    max_age: std::time::Duration,
+    max_files: usize,
+    max_bytes: u64,
+) -> (usize, u64) {
+    let mut entries: Vec<(std::time::SystemTime, u64, std::path::PathBuf)> = Vec::new();
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return (0, 0);
+    };
+    for e in rd.flatten() {
+        if e.path().extension().and_then(|x| x.to_str()) != Some("png") {
+            continue;
+        }
+        if let Ok(md) = e.metadata() {
+            let mtime = md.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            entries.push((mtime, md.len(), e.path()));
+        }
+    }
+    entries.sort_by_key(|(mtime, _, _)| *mtime);
+
+    let now = std::time::SystemTime::now();
+    let mut gone = vec![false; entries.len()];
+    let (mut removed, mut freed) = (0usize, 0u64);
+    let (mut live, mut total) = (
+        entries.len(),
+        entries.iter().map(|(_, l, _)| *l).sum::<u64>(),
+    );
+
+    for (i, (mtime, len, path)) in entries.iter().enumerate() {
+        if now.duration_since(*mtime).unwrap_or_default() < max_age {
+            break;
+        }
+        if std::fs::remove_file(path).is_ok() {
+            gone[i] = true;
+            removed += 1;
+            freed += *len;
+            live -= 1;
+            total = total.saturating_sub(*len);
+        }
+    }
+
+    for i in 0..entries.len() {
+        if live <= max_files && total <= max_bytes {
+            break;
+        }
+        if gone[i] {
+            continue;
+        }
+        let (_, len, path) = &entries[i];
+        if std::fs::remove_file(path).is_ok() {
+            removed += 1;
+            freed += *len;
+            live -= 1;
+            total = total.saturating_sub(*len);
+        }
+    }
+
+    (removed, freed)
+}
+
 fn should_fetch(app: &App, key: &str) -> bool {
     match app.preview_cache.get(key) {
         None => true,
@@ -576,6 +645,93 @@ mod tests {
             retry_at: Some(std::time::Instant::now() - RETRY_BACKOFF),
         }));
         assert!(should_fetch(&elapsed, "k"), "expired backoff must retry");
+    }
+
+    // ── prune_thumbnail_cache ────────────────────────────────────────────
+
+    fn seed(dir: &std::path::Path, n: usize) {
+        let _ = std::fs::remove_dir_all(dir);
+        std::fs::create_dir_all(dir).unwrap();
+        let img = image::RgbImage::from_pixel(4, 4, image::Rgb([1, 2, 3]));
+        for i in 0..n {
+            img.save(dir.join(format!("f{:02}.png", i))).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    fn survivors(dir: &std::path::Path) -> Vec<String> {
+        let mut v: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        v.sort();
+        v
+    }
+
+    const FOREVER: std::time::Duration = std::time::Duration::from_secs(100 * 365 * 86400);
+
+    #[test]
+    fn prune_respects_the_file_count_cap_and_keeps_the_newest() {
+        let dir = std::env::temp_dir().join("vidi-prune-count");
+        seed(&dir, 12);
+        let (removed, freed) = prune_with(&dir, FOREVER, 5, u64::MAX);
+        assert_eq!(removed, 7);
+        assert!(freed > 0);
+        let left = survivors(&dir);
+        assert_eq!(left.len(), 5);
+        assert_eq!(
+            left,
+            vec!["f07.png", "f08.png", "f09.png", "f10.png", "f11.png"]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prune_respects_the_byte_cap() {
+        let dir = std::env::temp_dir().join("vidi-prune-bytes");
+        seed(&dir, 10);
+        let one = std::fs::metadata(dir.join("f00.png")).unwrap().len();
+        let (removed, freed) = prune_with(&dir, FOREVER, usize::MAX, one * 4);
+        assert!(removed >= 5, "pruned {removed}");
+        assert!(freed >= one * 5);
+        let left = survivors(&dir);
+        assert!(left.len() <= 5, "left {}", left.len());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prune_drops_everything_past_the_age_cap() {
+        let dir = std::env::temp_dir().join("vidi-prune-age");
+        seed(&dir, 4);
+        let (removed, _) = prune_with(&dir, std::time::Duration::ZERO, usize::MAX, u64::MAX);
+        assert_eq!(removed, 4);
+        assert!(survivors(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prune_keeps_a_small_fresh_cache_intact() {
+        let dir = std::env::temp_dir().join("vidi-prune-noop");
+        seed(&dir, 5);
+        std::fs::write(dir.join("notes.txt"), b"unrelated").unwrap();
+        let (removed, freed) = prune_with(&dir, FOREVER, 100, u64::MAX);
+        assert_eq!((removed, freed), (0, 0));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 6, "txt untouched");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prune_on_a_missing_dir_is_a_noop() {
+        assert_eq!(
+            prune_with(
+                &std::env::temp_dir().join("vidi-prune-absent"),
+                FOREVER,
+                0,
+                0
+            ),
+            (0, 0)
+        );
     }
 
     // ── cached_thumbnail_is_real ─────────────────────────────────────────
