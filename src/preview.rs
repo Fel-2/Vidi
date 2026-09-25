@@ -207,11 +207,49 @@ const CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const CACHE_MAX_FILES: usize = 4000;
 const CACHE_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(90 * 86400);
 
-const CACHE_EXT: &str = "img";
-const LEGACY_CACHE_EXT: &str = "png";
+const CACHE_EXT: &str = "png";
+
+/// Longest edge, in pixels, of a stored preview. The preview area is at most
+/// 14 rows tall, so a 16:9 image is drawn into roughly 400x220 cells' worth of
+/// pixels and anything beyond this is discarded by the terminal anyway.
+const MAX_STORED_EDGE: u32 = 640;
 
 fn cache_path(dir: &std::path::Path, key: &str) -> std::path::PathBuf {
     dir.join(format!("{}.{}", key, CACHE_EXT))
+}
+
+fn is_png(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+}
+
+/// `thumbnail` scales in both directions, so guard the case where the source is
+/// already small enough and must be left alone.
+fn downscale(img: &image::DynamicImage) -> image::DynamicImage {
+    if img.width() <= MAX_STORED_EDGE && img.height() <= MAX_STORED_EDGE {
+        return img.clone();
+    }
+    img.thumbnail(MAX_STORED_EDGE, MAX_STORED_EDGE)
+}
+
+fn encode_png(img: &image::DynamicImage) -> Option<Vec<u8>> {
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+    use image::ImageEncoder;
+
+    let rgb = img.to_rgb8();
+    let mut out = Vec::new();
+    PngEncoder::new_with_quality(
+        &mut std::io::Cursor::new(&mut out),
+        CompressionType::Best,
+        FilterType::Paeth,
+    )
+    .write_image(
+        rgb.as_raw(),
+        rgb.width(),
+        rgb.height(),
+        image::ExtendedColorType::Rgb8,
+    )
+    .ok()?;
+    Some(out)
 }
 
 pub fn image_dims(bytes: &[u8]) -> Option<(u32, u32)> {
@@ -239,7 +277,7 @@ fn prune_with(
     };
     for e in rd.flatten() {
         match e.path().extension().and_then(|x| x.to_str()) {
-            Some(CACHE_EXT) | Some(LEGACY_CACHE_EXT) => {}
+            Some(CACHE_EXT) => {}
             _ => continue,
         }
         if let Ok(md) = e.metadata() {
@@ -342,11 +380,26 @@ async fn download_image(url: &str, dest: &std::path::Path) -> bool {
     let Ok(bytes) = resp.bytes().await else {
         return false;
     };
-    match image_dims(&bytes) {
-        Some(d) if d != PLACEHOLDER_DIMS => {}
-        _ => return false,
+    let Some((w, h)) = image_dims(&bytes) else {
+        return false;
+    };
+    if (w, h) == PLACEHOLDER_DIMS {
+        return false;
     }
-    tokio::fs::write(dest, &bytes).await.is_ok() && dest.exists()
+
+    let payload = if is_png(&bytes) && w <= MAX_STORED_EDGE && h <= MAX_STORED_EDGE {
+        bytes.to_vec()
+    } else {
+        let Ok(img) = image::load_from_memory(&bytes) else {
+            return false;
+        };
+        let Some(png) = encode_png(&downscale(&img)) else {
+            return false;
+        };
+        png
+    };
+
+    tokio::fs::write(dest, &payload).await.is_ok() && dest.exists()
 }
 
 async fn fetch_thumbnail(video_id: &str, thumbnail_url: &str, cache_dir: &std::path::Path) -> bool {
@@ -719,7 +772,7 @@ mod tests {
 
     // ── image_dims ───────────────────────────────────────────────────────
 
-    fn encode(w: u32, h: u32, fmt: image::ImageFormat) -> Vec<u8> {
+    pub(super) fn encode(w: u32, h: u32, fmt: image::ImageFormat) -> Vec<u8> {
         let mut out = Vec::new();
         image::DynamicImage::new_rgb8(w, h)
             .write_to(&mut std::io::Cursor::new(&mut out), fmt)
@@ -812,90 +865,126 @@ mod tests {
     }
 
     #[test]
-    fn prune_also_reclaims_legacy_png_entries() {
+    fn prune_ignores_non_cache_files() {
         let dir = std::env::temp_dir().join("vidi-prune-legacy");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(format!("a.{}", LEGACY_CACHE_EXT)), b"x").unwrap();
-        std::fs::write(dir.join(format!("b.{}", CACHE_EXT)), b"y").unwrap();
+        std::fs::write(dir.join(format!("a.{}", CACHE_EXT)), b"x").unwrap();
         std::fs::write(dir.join("keep.txt"), b"z").unwrap();
+        std::fs::write(dir.join("notes.md"), b"z").unwrap();
         let (removed, _) = prune_with(&dir, FOREVER, 0, 0);
-        assert_eq!(removed, 2, "both extensions pruned");
+        assert_eq!(removed, 1, "only the .png is a cache entry");
         assert!(dir.join("keep.txt").exists());
+        assert!(dir.join("notes.md").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[tokio::test]
-    #[ignore = "needs network"]
-    async fn fetch_stores_the_source_bytes_untouched() {
-        let dir = std::env::temp_dir().join("vidi-preview-test-net");
-        let key = "raw-probe";
-        let dest = cache_path(&dir, key);
-        drop(tokio::fs::remove_file(&dest).await);
-        let url = "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg";
+    // ── encode_png / downscaling ─────────────────────────────────────────
 
-        let ok = fetch_thumbnail(key, url, &dir).await;
-
-        assert!(ok);
-        let stored = std::fs::read(&dest).unwrap();
-        let served = reqwest::get(url).await.unwrap().bytes().await.unwrap();
-        assert_eq!(stored, served.as_ref(), "stored verbatim, not re-encoded");
-        assert_eq!(image_dims(&stored), Some((1280, 720)));
-        let _ = std::fs::remove_file(&dest);
+    #[test]
+    fn encoded_pngs_are_capped_to_the_stored_edge() {
+        let big = image::DynamicImage::new_rgb8(1280, 720);
+        let out = encode_png(&downscale(&big)).unwrap();
+        assert!(is_png(&out));
+        assert_eq!(image_dims(&out), Some((640, 360)));
     }
 
+    #[test]
+    fn downscaling_never_upscales_a_small_source() {
+        let small = image::DynamicImage::new_rgb8(320, 180);
+        let out = encode_png(&downscale(&small)).unwrap();
+        assert_eq!(image_dims(&out), Some((320, 180)));
+    }
+
+    #[test]
+    fn downscaling_preserves_portrait_aspect() {
+        let tall = image::DynamicImage::new_rgb8(1080, 1920);
+        let out = encode_png(&downscale(&tall)).unwrap();
+        assert_eq!(image_dims(&out), Some((360, 640)));
+    }
+
+    #[test]
+    fn encoded_png_is_much_smaller_than_the_full_size_original() {
+        let mut img = image::RgbImage::new(1280, 720);
+        for (x, y, p) in img.enumerate_pixels_mut() {
+            *p = image::Rgb([(x % 251) as u8, (y % 253) as u8, ((x ^ y) % 247) as u8]);
+        }
+        let big = image::DynamicImage::ImageRgb8(img);
+        let full = encode_png(&big).unwrap();
+        let capped = encode_png(&downscale(&big)).unwrap();
+        assert!(
+            capped.len() * 2 < full.len(),
+            "capped {} should be well under full {}",
+            capped.len(),
+            full.len()
+        );
+    }
+
+    #[test]
+    fn is_png_only_matches_png() {
+        assert!(is_png(&encode(4, 4, image::ImageFormat::Png)));
+        assert!(!is_png(&encode(4, 4, image::ImageFormat::Jpeg)));
+        assert!(!is_png(b""));
+    }
+}
+
+#[cfg(test)]
+mod net {
+    use super::tests::encode;
+    use super::*;
+
+    /// All four network checks share one tokio runtime on purpose.
+    /// `http_client` is a process-wide OnceLock whose connection pool is driven
+    /// by the runtime that first used it, so a second `#[tokio::test]` would
+    /// inherit a pool whose runtime has already been dropped and fail with
+    /// hyper's DispatchGone. The app itself has a single long-lived runtime.
     #[tokio::test]
     #[ignore = "needs network"]
-    async fn fetch_falls_back_past_ytimg_404_to_a_size_that_exists() {
-        let dir = std::env::temp_dir().join("vidi-preview-test-net");
+    async fn fetch_smoke() {
+        let dir = std::env::temp_dir().join("vidi-preview-net");
+        let _ = tokio::fs::create_dir_all(&dir).await;
+
+        // 1. A video with no maxres: maxresdefault and hq720 both 404, so the
+        //    chain has to fall through to hqdefault.
         let key = "fallback-probe";
         let dest = cache_path(&dir, key);
-        drop(tokio::fs::remove_file(&dest));
-
-        let ok = fetch_thumbnail(
-            key,
-            "https://i.ytimg.com/vi/jNQXAC9IVRw/maxresdefault.jpg",
-            &dir,
-        )
-        .await;
-
-        assert!(ok, "fallback chain should reach hqdefault");
+        let _ = tokio::fs::remove_file(&dest).await;
+        assert!(
+            fetch_thumbnail(
+                key,
+                "https://i.ytimg.com/vi/jNQXAC9IVRw/maxresdefault.jpg",
+                &dir
+            )
+            .await,
+            "fallback chain should reach hqdefault"
+        );
         assert!(cached_thumbnail_is_real(&dest));
         assert_ne!(
             image_dims(&std::fs::read(&dest).unwrap()),
             Some(PLACEHOLDER_DIMS),
             "placeholder must never be cached"
         );
-        let _ = std::fs::remove_file(&dest);
-    }
 
-    #[tokio::test]
-    #[ignore = "needs network"]
-    async fn fetch_reports_failure_instead_of_caching_a_placeholder() {
-        let dir = std::env::temp_dir().join("vidi-preview-test-net");
+        // 2. A video with no thumbnail at all: every candidate 404s, so the
+        //    fetch must fail rather than cache the placeholder.
         let key = "no-such-video";
         let dest = cache_path(&dir, key);
-        drop(tokio::fs::remove_file(&dest));
-
-        let ok = fetch_thumbnail(
-            key,
-            "https://i.ytimg.com/vi/aaaaaaaaaaa/maxresdefault.jpg",
-            &dir,
-        )
-        .await;
-
-        assert!(!ok, "a video with no thumbnail must not report success");
+        let _ = tokio::fs::remove_file(&dest).await;
+        assert!(
+            !fetch_thumbnail(
+                key,
+                "https://i.ytimg.com/vi/aaaaaaaaaaa/maxresdefault.jpg",
+                &dir
+            )
+            .await,
+            "a video with no thumbnail must not report success"
+        );
         assert!(
             !cached_thumbnail_is_real(&dest),
             "nothing decodable should have been written"
         );
-    }
 
-    #[tokio::test]
-    #[ignore = "needs network"]
-    async fn fetch_recovers_a_stale_cached_placeholder() {
-        let dir = std::env::temp_dir().join("vidi-preview-test-net");
-        let _ = std::fs::create_dir_all(&dir);
+        // 3. A 120x90 placeholder already on disk must be refetched.
         let key = "stale-placeholder";
         let dest = cache_path(&dir, key);
         std::fs::write(
@@ -908,19 +997,53 @@ mod tests {
         )
         .unwrap();
         assert!(!cached_thumbnail_is_real(&dest));
-
-        let ok = fetch_thumbnail(
-            key,
-            "https://i.ytimg.com/vi/jNQXAC9IVRw/maxresdefault.jpg",
-            &dir,
-        )
-        .await;
-
-        assert!(ok);
+        assert!(
+            fetch_thumbnail(
+                key,
+                "https://i.ytimg.com/vi/jNQXAC9IVRw/maxresdefault.jpg",
+                &dir
+            )
+            .await
+        );
         assert!(
             cached_thumbnail_is_real(&dest),
             "stale placeholder should have been refetched"
         );
-        let _ = std::fs::remove_file(&dest);
+
+        // 4. A normal 1280x720 source is stored as a PNG capped to the edge,
+        //    and is far smaller than a full-size PNG encode of the same frame.
+        let key = "raw-probe";
+        let dest = cache_path(&dir, key);
+        let _ = tokio::fs::remove_file(&dest).await;
+        let url = "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg";
+        assert!(fetch_thumbnail(key, url, &dir).await, "fetch failed");
+        let stored = std::fs::read(&dest).unwrap();
+        assert!(is_png(&stored), "these terminals only accept PNG");
+        assert_eq!(
+            image_dims(&stored),
+            Some((MAX_STORED_EDGE, 360)),
+            "16:9 capped to the longest edge"
+        );
+        let served = crate::innertube::http_client()
+            .get(url)
+            .send()
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let full = encode_png(&image::load_from_memory(&served).unwrap()).unwrap();
+        println!(
+            "NET  source {} KiB -> stored {} KiB (full-size PNG would be {} KiB)",
+            served.len() / 1024,
+            stored.len() / 1024,
+            full.len() / 1024
+        );
+        assert!(
+            stored.len() * 2 < full.len(),
+            "downscaled PNG {} should be well under full-size PNG {}",
+            stored.len(),
+            full.len()
+        );
     }
 }
