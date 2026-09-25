@@ -319,6 +319,13 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
             }
         }
 
+        AppEvent::PreviewFailed { video_id } => {
+            app.preview_cache.remove(&video_id);
+            if app.kitty_displayed.as_deref() == Some(&video_id) {
+                app.kitty_displayed = None;
+            }
+        }
+
         AppEvent::UpdateAvailable(tag) => {
             if crate::update::install_command().is_none() {
                 app.set_info(format!(

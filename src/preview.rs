@@ -120,14 +120,21 @@ fn trigger_channel_preview(app: &mut App, channel_url: &str) {
     let channel_url = channel_url.to_string();
     tokio::spawn(async move {
         let Some(avatar_url) = crate::youtube::channel_avatar_url(&channel_url).await else {
+            let _ = tx.send(AppEvent::PreviewFailed {
+                video_id: cache_key,
+            });
             return;
         };
         let ready = fetch_thumbnail(&cache_key, &avatar_url, &cache_dir).await;
-        if ready {
-            let _ = tx.send(AppEvent::PreviewReady {
+        let _ = tx.send(if ready {
+            AppEvent::PreviewReady {
                 video_id: cache_key,
-            });
-        }
+            }
+        } else {
+            AppEvent::PreviewFailed {
+                video_id: cache_key,
+            }
+        });
     });
 }
 
@@ -146,9 +153,11 @@ pub fn trigger_preview(app: &mut App, video: &Video) {
     let cache_dir = config::youtube_preview_cache_dir();
     tokio::spawn(async move {
         let ready = fetch_thumbnail(&video_id, &thumbnail_url, &cache_dir).await;
-        if ready {
-            let _ = tx.send(AppEvent::PreviewReady { video_id });
-        }
+        let _ = tx.send(if ready {
+            AppEvent::PreviewReady { video_id }
+        } else {
+            AppEvent::PreviewFailed { video_id }
+        });
     });
 }
 
@@ -163,38 +172,100 @@ pub fn trigger_preview_raw(app: &mut App, cache_key: String, thumbnail_url: Stri
     let cache_dir = config::youtube_preview_cache_dir();
     tokio::spawn(async move {
         let ready = fetch_thumbnail(&cache_key, &thumbnail_url, &cache_dir).await;
-        if ready {
-            let _ = tx.send(AppEvent::PreviewReady {
+        let _ = tx.send(if ready {
+            AppEvent::PreviewReady {
                 video_id: cache_key,
-            });
-        }
+            }
+        } else {
+            AppEvent::PreviewFailed {
+                video_id: cache_key,
+            }
+        });
     });
+}
+
+const PLACEHOLDER_DIMS: (u32, u32) = (120, 90);
+
+fn thumbnail_candidates(url: &str) -> Vec<String> {
+    let mut out = vec![url.to_string()];
+    let Some((id, _)) = url
+        .strip_prefix("https://i.ytimg.com/vi/")
+        .and_then(|rest| rest.split_once('/'))
+    else {
+        return out;
+    };
+    if id.is_empty() {
+        return out;
+    }
+    for name in [
+        "maxresdefault.jpg",
+        "hq720.jpg",
+        "hqdefault.jpg",
+        "mqdefault.jpg",
+    ] {
+        let candidate = format!("https://i.ytimg.com/vi/{}/{}", id, name);
+        if !out.contains(&candidate) {
+            out.push(candidate);
+        }
+    }
+    out
+}
+
+fn cached_thumbnail_is_real(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    let mut head = [0u8; 24];
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    if f.read_exact(&mut head).is_err() || head[..8] != *b"\x89PNG\r\n\x1a\n" {
+        return false;
+    }
+    let w = u32::from_be_bytes(head[16..20].try_into().unwrap());
+    let h = u32::from_be_bytes(head[20..24].try_into().unwrap());
+    (w > 0 && h > 0) && (w, h) != PLACEHOLDER_DIMS
+}
+
+async fn download_png(url: &str, dest: &std::path::Path) -> bool {
+    let Ok(resp) = reqwest::get(url).await else {
+        return false;
+    };
+    if !resp.status().is_success() {
+        return false;
+    }
+    let Ok(bytes) = resp.bytes().await else {
+        return false;
+    };
+    let Ok(img) = image::load_from_memory(&bytes) else {
+        return false;
+    };
+    if (img.width(), img.height()) == PLACEHOLDER_DIMS {
+        return false;
+    }
+    let mut png_bytes = Vec::new();
+    if img
+        .write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .is_err()
+    {
+        return false;
+    }
+    tokio::fs::write(dest, &png_bytes).await.is_ok() && dest.exists()
 }
 
 async fn fetch_thumbnail(video_id: &str, thumbnail_url: &str, cache_dir: &std::path::Path) -> bool {
     let _ = tokio::fs::create_dir_all(cache_dir).await;
     let img_path = cache_dir.join(format!("{}.png", video_id));
-    if img_path.exists() {
+    if cached_thumbnail_is_real(&img_path) {
         return true;
     }
-    if let Ok(resp) = reqwest::get(thumbnail_url).await {
-        if let Ok(bytes) = resp.bytes().await {
-            // Decode whatever format YouTube returns and re-encode as PNG.
-            if let Ok(img) = image::load_from_memory(&bytes) {
-                let mut png_bytes = Vec::new();
-                if img
-                    .write_to(
-                        &mut std::io::Cursor::new(&mut png_bytes),
-                        image::ImageFormat::Png,
-                    )
-                    .is_ok()
-                {
-                    let _ = tokio::fs::write(&img_path, &png_bytes).await;
-                }
-            }
+    for url in thumbnail_candidates(thumbnail_url) {
+        if download_png(&url, &img_path).await {
+            return true;
         }
     }
-    img_path.exists()
+    false
 }
 
 /// Returns the preview cache key for the selected item in the current list screen.
@@ -386,4 +457,157 @@ fn clear_preview(app: &App) {
         GraphicsProtocol::None => {}
     }
     let _ = stdout.flush();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_png(name: &str, w: u32, h: u32) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!("vidi-preview-test-{}.png", name));
+        let img = image::RgbImage::from_pixel(w, h, image::Rgb([20, 40, 60]));
+        img.save(&path).unwrap();
+        path
+    }
+
+    // ── thumbnail_candidates ─────────────────────────────────────────────
+
+    #[test]
+    fn candidates_keep_requested_url_first_then_ytimg_fallbacks() {
+        let c = thumbnail_candidates("https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg");
+        assert_eq!(c[0], "https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg");
+        assert_eq!(c[1], "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg");
+        assert!(c.contains(&"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg".to_string()));
+        assert!(c.contains(&"https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg".to_string()));
+    }
+
+    #[test]
+    fn candidates_are_deduplicated() {
+        let c = thumbnail_candidates("https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg");
+        assert_eq!(c.len(), 4);
+        let mut sorted = c.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), c.len());
+    }
+
+    #[test]
+    fn candidates_for_non_youtube_urls_are_untouched() {
+        let url = "https://static-cdn.jtvnw.net/previews-ttv/live_user_x-640x360.jpg";
+        assert_eq!(thumbnail_candidates(url), vec![url]);
+        assert_eq!(thumbnail_candidates("not a url"), vec!["not a url"]);
+    }
+
+    #[test]
+    fn candidates_skip_ytimg_urls_without_an_id() {
+        assert_eq!(
+            thumbnail_candidates("https://i.ytimg.com/vi//hq.jpg").len(),
+            1
+        );
+    }
+
+    // ── cached_thumbnail_is_real ─────────────────────────────────────────
+
+    #[test]
+    fn cached_placeholder_is_rejected_so_it_gets_refetched() {
+        let p = tmp_png("placeholder", PLACEHOLDER_DIMS.0, PLACEHOLDER_DIMS.1);
+        assert!(!cached_thumbnail_is_real(&p));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn cached_real_thumbnail_is_accepted() {
+        let p = tmp_png("real", 1280, 720);
+        assert!(cached_thumbnail_is_real(&p));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn missing_and_corrupt_cache_entries_are_rejected() {
+        assert!(!cached_thumbnail_is_real(
+            &std::env::temp_dir().join("vidi-does-not-exist.png")
+        ));
+        let junk = std::env::temp_dir().join("vidi-preview-test-junk.png");
+        std::fs::write(&junk, b"not an image at all, definitely not").unwrap();
+        assert!(!cached_thumbnail_is_real(&junk));
+        let _ = std::fs::remove_file(&junk);
+    }
+
+    #[tokio::test]
+    #[ignore = "needs network"]
+    async fn fetch_falls_back_past_ytimg_404_to_a_size_that_exists() {
+        let dir = std::env::temp_dir().join("vidi-preview-test-net");
+        let key = "fallback-probe";
+        let dest = dir.join(format!("{}.png", key));
+        let _ = std::fs::remove_file(&dest);
+
+        let ok = fetch_thumbnail(
+            key,
+            "https://i.ytimg.com/vi/jNQXAC9IVRw/maxresdefault.jpg",
+            &dir,
+        )
+        .await;
+
+        assert!(ok, "fallback chain should reach hqdefault");
+        assert!(cached_thumbnail_is_real(&dest));
+        let decoded = image::open(&dest).unwrap();
+        assert_ne!(
+            (decoded.width(), decoded.height()),
+            PLACEHOLDER_DIMS,
+            "placeholder must never be cached"
+        );
+        let _ = std::fs::remove_file(&dest);
+    }
+
+    #[tokio::test]
+    #[ignore = "needs network"]
+    async fn fetch_reports_failure_instead_of_caching_a_placeholder() {
+        let dir = std::env::temp_dir().join("vidi-preview-test-net");
+        let key = "no-such-video";
+        let dest = dir.join(format!("{}.png", key));
+        let _ = std::fs::remove_file(&dest);
+
+        let ok = fetch_thumbnail(
+            key,
+            "https://i.ytimg.com/vi/aaaaaaaaaaa/maxresdefault.jpg",
+            &dir,
+        )
+        .await;
+
+        assert!(!ok, "a video with no thumbnail must not report success");
+        assert!(
+            !cached_thumbnail_is_real(&dest),
+            "nothing decodable should have been written"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs network"]
+    async fn fetch_recovers_a_stale_cached_placeholder() {
+        let dir = std::env::temp_dir().join("vidi-preview-test-net");
+        let _ = std::fs::create_dir_all(&dir);
+        let key = "stale-placeholder";
+        let dest = dir.join(format!("{}.png", key));
+        let img = image::RgbImage::from_pixel(
+            PLACEHOLDER_DIMS.0,
+            PLACEHOLDER_DIMS.1,
+            image::Rgb([128, 128, 128]),
+        );
+        img.save(&dest).unwrap();
+        assert!(!cached_thumbnail_is_real(&dest));
+
+        let ok = fetch_thumbnail(
+            key,
+            "https://i.ytimg.com/vi/jNQXAC9IVRw/maxresdefault.jpg",
+            &dir,
+        )
+        .await;
+
+        assert!(ok);
+        assert!(
+            cached_thumbnail_is_real(&dest),
+            "stale placeholder should have been refetched"
+        );
+        let _ = std::fs::remove_file(&dest);
+    }
 }

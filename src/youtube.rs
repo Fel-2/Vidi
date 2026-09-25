@@ -144,7 +144,7 @@ fn json_to_video(j: &Value, fallback_channel: &str, fallback_channel_url: &str) 
         .to_string();
     let view_count = j.get("view_count").and_then(|v| v.as_u64());
     // yt-dlp flat-playlist returns a `thumbnails` array, not a `thumbnail` string.
-    // Pick the last (highest-res) entry, or fall back to a known-good URL.
+    // Pick the best widescreen entry, or fall back to a known-good URL.
     let thumbnail = j
         .get("thumbnail")
         .and_then(|v| v.as_str())
@@ -152,10 +152,7 @@ fn json_to_video(j: &Value, fallback_channel: &str, fallback_channel_url: &str) 
         .or_else(|| {
             j.get("thumbnails")
                 .and_then(|v| v.as_array())
-                .and_then(|arr| arr.last())
-                .and_then(|last| last.get("url"))
-                .and_then(|u| u.as_str())
-                .map(|u| u.split('?').next().unwrap_or(u).to_string())
+                .and_then(|arr| crate::innertube::best_thumbnail(arr))
         })
         .unwrap_or_else(|| {
             if id.is_empty() {
@@ -1349,6 +1346,20 @@ mod tests {
         let videos = parse_playlist_json(&json);
         // Should pick last entry and strip query string
         assert_eq!(videos[0].thumbnail, "https://example.com/high.jpg");
+    }
+
+    #[test]
+    fn parse_playlist_thumbnail_prefers_widescreen_with_dimensions() {
+        let json = json!({
+            "id": "t2",
+            "title": "Thumb test",
+            "thumbnails": [
+                {"url": "https://i.ytimg.com/vi/t2/hqdefault.jpg?sqp=a", "width": 480, "height": 360},
+                {"url": "https://i.ytimg.com/vi/t2/hq720.jpg?sqp=b", "width": 1280, "height": 720}
+            ]
+        });
+        let videos = parse_playlist_json(&json);
+        assert_eq!(videos[0].thumbnail, "https://i.ytimg.com/vi/t2/hq720.jpg");
     }
 
     #[test]

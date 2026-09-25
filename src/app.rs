@@ -78,6 +78,11 @@ pub enum AppEvent {
     PreviewReady {
         video_id: String,
     },
+    /// Thumbnail could not be fetched; drop the in-flight entry so a later
+    /// selection can try again.
+    PreviewFailed {
+        video_id: String,
+    },
     /// A newer release is available; carries its tag.
     UpdateAvailable(String),
 }

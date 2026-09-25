@@ -110,14 +110,44 @@ fn text_of(v: &Value) -> Option<String> {
     (!joined.is_empty()).then_some(joined)
 }
 
-fn last_thumbnail(v: &Value) -> Option<String> {
-    v.get("thumbnail")
-        .and_then(|t| t.get("thumbnails"))
-        .and_then(|t| t.as_array())
-        .and_then(|arr| arr.last())
-        .and_then(|t| t.get("url"))
-        .and_then(|u| u.as_str())
-        .map(|u| u.split('?').next().unwrap_or(u).to_string())
+fn thumb_dims(t: &Value) -> Option<(u32, u32)> {
+    let w = t.get("width")?.as_u64()? as u32;
+    let h = t.get("height")?.as_u64()? as u32;
+    (w > 0 && h > 0).then_some((w, h))
+}
+
+fn thumb_is_widescreen(t: &Value) -> bool {
+    match thumb_dims(t) {
+        Some((w, h)) => ((w as f64 / h as f64) - 16.0 / 9.0).abs() < 0.15,
+        None => false,
+    }
+}
+
+fn widest_thumbnail<'a>(srcs: &[&'a Value]) -> Option<&'a Value> {
+    srcs.iter()
+        .filter_map(|t| Some((*t, thumb_dims(t)?)))
+        .max_by_key(|(_, (w, _))| *w)
+        .map(|(t, _)| t)
+}
+
+pub(crate) fn best_thumbnail(sources: &[Value]) -> Option<String> {
+    let clean = |t: &Value| -> Option<String> {
+        let u = t.get("url")?.as_str()?;
+        Some(u.split('?').next().unwrap_or(u).to_string())
+    };
+    let widescreen: Vec<&Value> = sources.iter().filter(|t| thumb_is_widescreen(t)).collect();
+    widest_thumbnail(&widescreen)
+        .or_else(|| widest_thumbnail(&sources.iter().collect::<Vec<_>>()))
+        .and_then(clean)
+        .or_else(|| sources.last().and_then(clean))
+}
+
+fn thumbnail_from_renderer(v: &Value) -> Option<String> {
+    best_thumbnail(
+        v.get("thumbnail")
+            .and_then(|t| t.get("thumbnails"))
+            .and_then(|t| t.as_array())?,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -241,8 +271,8 @@ fn video_from_renderer(r: &Value, now: i64) -> Option<Video> {
         .get("viewCountText")
         .and_then(text_of)
         .and_then(|t| parse_view_count(&t));
-    let thumbnail =
-        last_thumbnail(r).unwrap_or_else(|| format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", id));
+    let thumbnail = thumbnail_from_renderer(r)
+        .unwrap_or_else(|| format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", id));
 
     Some(Video {
         url: format!("https://www.youtube.com/watch?v={}", id),
@@ -378,10 +408,7 @@ fn video_from_lockup(r: &Value, now: i64) -> Option<Video> {
     let thumbnail = r
         .pointer("/contentImage/thumbnailViewModel/image/sources")
         .and_then(|s| s.as_array())
-        .and_then(|arr| arr.last())
-        .and_then(|s| s.get("url"))
-        .and_then(|u| u.as_str())
-        .map(|u| u.split('?').next().unwrap_or(u).to_string())
+        .and_then(|arr| best_thumbnail(arr))
         .unwrap_or_else(|| format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", id));
 
     Some(Video {
@@ -878,6 +905,66 @@ mod tests {
         assert_eq!(v.thumbnail, "https://i.ytimg.com/vi/abc123/hq720.jpg");
     }
 
+    // ── best_thumbnail ───────────────────────────────────────────────────
+
+    #[test]
+    fn best_thumbnail_prefers_widescreen_over_4_3() {
+        let r = json!({"thumbnail": {"thumbnails": [
+            {"url": "https://i.ytimg.com/vi/abc/hqdefault.jpg", "width": 480, "height": 360},
+            {"url": "https://i.ytimg.com/vi/abc/mqdefault.jpg", "width": 320, "height": 180}
+        ]}});
+        assert_eq!(
+            thumbnail_from_renderer(&r).as_deref(),
+            Some("https://i.ytimg.com/vi/abc/mqdefault.jpg")
+        );
+    }
+
+    #[test]
+    fn best_thumbnail_takes_largest_widescreen() {
+        let r = json!({"thumbnail": {"thumbnails": [
+            {"url": "https://i.ytimg.com/vi/abc/hq720.jpg?sqp=x", "width": 1280, "height": 720},
+            {"url": "https://i.ytimg.com/vi/abc/hq1080.jpg?sqp=y", "width": 1920, "height": 1080},
+            {"url": "https://i.ytimg.com/vi/abc/hqdefault.jpg", "width": 480, "height": 360}
+        ]}});
+        assert_eq!(
+            thumbnail_from_renderer(&r).as_deref(),
+            Some("https://i.ytimg.com/vi/abc/hq1080.jpg")
+        );
+    }
+
+    #[test]
+    fn best_thumbnail_falls_back_to_widest_when_none_is_widescreen() {
+        let r = json!({"thumbnail": {"thumbnails": [
+            {"url": "https://i.ytimg.com/vi/abc/hqdefault.jpg", "width": 480, "height": 360},
+            {"url": "https://i.ytimg.com/vi/abc/sddefault.jpg", "width": 640, "height": 480}
+        ]}});
+        assert_eq!(
+            thumbnail_from_renderer(&r).as_deref(),
+            Some("https://i.ytimg.com/vi/abc/sddefault.jpg")
+        );
+    }
+
+    #[test]
+    fn best_thumbnail_skips_zero_dimensions() {
+        let r = json!({"thumbnail": {"thumbnails": [
+            {"url": "https://i.ytimg.com/vi/abc/hqdefault.jpg", "width": 0, "height": 0},
+            {"url": "https://i.ytimg.com/vi/abc/hq720.jpg", "width": 1280, "height": 720}
+        ]}});
+        assert_eq!(
+            thumbnail_from_renderer(&r).as_deref(),
+            Some("https://i.ytimg.com/vi/abc/hq720.jpg")
+        );
+    }
+
+    #[test]
+    fn best_thumbnail_empty_array_is_none() {
+        assert_eq!(
+            thumbnail_from_renderer(&json!({"thumbnail": {"thumbnails": []}})),
+            None
+        );
+        assert_eq!(thumbnail_from_renderer(&json!({})), None);
+    }
+
     #[test]
     fn video_renderer_no_id_is_none() {
         assert!(video_from_renderer(&json!({"title": {"simpleText": "x"}}), 0).is_none());
@@ -1035,6 +1122,20 @@ mod tests {
         assert_eq!(v.timestamp, Some(1_000_000 - 86400));
         assert_eq!(v.thumbnail, "https://i.ytimg.com/vi/aB5LGrHISqY/hq.jpg");
         assert!(!v.is_short);
+    }
+
+    #[test]
+    fn lockup_thumbnail_prefers_largest_widescreen_source() {
+        let mut v = lockup("LOCKUP_CONTENT_TYPE_VIDEO");
+        v["contentImage"]["thumbnailViewModel"]["image"]["sources"] = json!([
+            {"url": "https://i.ytimg.com/vi/aB5LGrHISqY/hqdefault.jpg?sqp=a", "width": 480, "height": 360},
+            {"url": "https://i.ytimg.com/vi/aB5LGrHISqY/maxresdefault.jpg?sqp=b", "width": 1280, "height": 720}
+        ]);
+        let v = video_from_lockup(&v, 1_000_000).unwrap();
+        assert_eq!(
+            v.thumbnail,
+            "https://i.ytimg.com/vi/aB5LGrHISqY/maxresdefault.jpg"
+        );
     }
 
     #[test]
