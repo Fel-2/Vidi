@@ -170,8 +170,9 @@ fn render_preview_panel(f: &mut Frame, area: Rect, ls: &ListScreen, app: &mut Ap
         let entry = app.preview_cache.get(key);
         let status = match entry {
             None => "  no preview",
-            Some(e) if !e.ready => "  loading…",
-            Some(_) => "",
+            Some(e) if e.ready => "",
+            Some(e) if e.retry_at.is_some() => "  no preview",
+            Some(_) => "  loading…",
         };
         lines.push(Line::from(Span::styled(
             status,

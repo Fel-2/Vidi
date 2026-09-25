@@ -127,6 +127,7 @@ pub enum ListContext {
 #[derive(Debug, Clone)]
 pub struct PreviewEntry {
     pub ready: bool, // image has been downloaded to disk
+    pub retry_at: Option<std::time::Instant>,
 }
 
 #[derive(Debug, Clone)]

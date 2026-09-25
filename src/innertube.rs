@@ -17,7 +17,7 @@ const CLIENT_VERSION: &str = "2.20250520.01.00";
 // HTTP plumbing
 // ---------------------------------------------------------------------------
 
-fn http_client() -> &'static reqwest::Client {
+pub(crate) fn http_client() -> &'static reqwest::Client {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     CLIENT.get_or_init(|| {
         // One connection per parallel fetch: multiplexing the feed's ~140

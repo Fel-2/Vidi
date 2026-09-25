@@ -312,15 +312,26 @@ pub fn handle_app_event(app: &mut App, event: AppEvent) {
         }
 
         AppEvent::PreviewReady { video_id } => {
-            app.preview_cache
-                .insert(video_id.clone(), PreviewEntry { ready: true });
+            app.preview_cache.insert(
+                video_id.clone(),
+                PreviewEntry {
+                    ready: true,
+                    retry_at: None,
+                },
+            );
             if app.kitty_displayed.as_deref() == Some(&video_id) {
                 app.kitty_displayed = None;
             }
         }
 
         AppEvent::PreviewFailed { video_id } => {
-            app.preview_cache.remove(&video_id);
+            app.preview_cache.insert(
+                video_id.clone(),
+                PreviewEntry {
+                    ready: false,
+                    retry_at: Some(std::time::Instant::now() + crate::preview::RETRY_BACKOFF),
+                },
+            );
             if app.kitty_displayed.as_deref() == Some(&video_id) {
                 app.kitty_displayed = None;
             }

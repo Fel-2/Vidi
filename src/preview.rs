@@ -110,11 +110,16 @@ fn trigger_channel_preview(app: &mut App, channel_url: &str) {
         return;
     }
     let cache_key = channel_cache_key(channel_url);
-    if app.preview_cache.contains_key(&cache_key) {
+    if !should_fetch(app, &cache_key) {
         return;
     }
-    app.preview_cache
-        .insert(cache_key.clone(), PreviewEntry { ready: false });
+    app.preview_cache.insert(
+        cache_key.clone(),
+        PreviewEntry {
+            ready: false,
+            retry_at: None,
+        },
+    );
     let tx = app.tx.clone();
     let cache_dir = config::youtube_preview_cache_dir();
     let channel_url = channel_url.to_string();
@@ -141,12 +146,17 @@ fn trigger_channel_preview(app: &mut App, channel_url: &str) {
 /// If the video's preview isn't cached yet, spawn an async task to download
 /// the thumbnail, then send `AppEvent::PreviewReady`.
 pub fn trigger_preview(app: &mut App, video: &Video) {
-    if video.thumbnail.is_empty() || app.preview_cache.contains_key(&video.id) {
+    if video.thumbnail.is_empty() || !should_fetch(app, &video.id) {
         return;
     }
     // Insert a placeholder so we don't launch duplicate tasks.
-    app.preview_cache
-        .insert(video.id.clone(), PreviewEntry { ready: false });
+    app.preview_cache.insert(
+        video.id.clone(),
+        PreviewEntry {
+            ready: false,
+            retry_at: None,
+        },
+    );
     let tx = app.tx.clone();
     let video_id = video.id.clone();
     let thumbnail_url = video.thumbnail.clone();
@@ -163,11 +173,16 @@ pub fn trigger_preview(app: &mut App, video: &Video) {
 
 /// Like `trigger_preview` but takes an arbitrary cache key and URL directly.
 pub fn trigger_preview_raw(app: &mut App, cache_key: String, thumbnail_url: String) {
-    if app.preview_cache.contains_key(&cache_key) {
+    if !should_fetch(app, &cache_key) {
         return;
     }
-    app.preview_cache
-        .insert(cache_key.clone(), PreviewEntry { ready: false });
+    app.preview_cache.insert(
+        cache_key.clone(),
+        PreviewEntry {
+            ready: false,
+            retry_at: None,
+        },
+    );
     let tx = app.tx.clone();
     let cache_dir = config::youtube_preview_cache_dir();
     tokio::spawn(async move {
@@ -185,6 +200,19 @@ pub fn trigger_preview_raw(app: &mut App, cache_key: String, thumbnail_url: Stri
 }
 
 const PLACEHOLDER_DIMS: (u32, u32) = (120, 90);
+
+pub const RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_secs(60);
+
+fn should_fetch(app: &App, key: &str) -> bool {
+    match app.preview_cache.get(key) {
+        None => true,
+        Some(e) if e.ready => false,
+        Some(e) => match e.retry_at {
+            None => false,
+            Some(at) => std::time::Instant::now() >= at,
+        },
+    }
+}
 
 fn thumbnail_candidates(url: &str) -> Vec<String> {
     let mut out = vec![url.to_string()];
@@ -226,7 +254,7 @@ fn cached_thumbnail_is_real(path: &std::path::Path) -> bool {
 }
 
 async fn download_png(url: &str, dest: &std::path::Path) -> bool {
-    let Ok(resp) = reqwest::get(url).await else {
+    let Ok(resp) = crate::innertube::http_client().get(url).send().await else {
         return false;
     };
     if !resp.status().is_success() {
@@ -504,6 +532,50 @@ mod tests {
             thumbnail_candidates("https://i.ytimg.com/vi//hq.jpg").len(),
             1
         );
+    }
+
+    // ── should_fetch ─────────────────────────────────────────────────────
+
+    fn app_with(entry: Option<PreviewEntry>) -> App {
+        let mut app = App::new(config::Config::default());
+        if let Some(e) = entry {
+            app.preview_cache.insert("k".to_string(), e);
+        }
+        app
+    }
+
+    #[test]
+    fn fetch_is_skipped_while_in_flight_or_ready() {
+        assert!(should_fetch(&app_with(None), "k"));
+        assert!(!should_fetch(
+            &app_with(Some(PreviewEntry {
+                ready: false,
+                retry_at: None
+            })),
+            "k"
+        ));
+        assert!(!should_fetch(
+            &app_with(Some(PreviewEntry {
+                ready: true,
+                retry_at: None
+            })),
+            "k"
+        ));
+    }
+
+    #[test]
+    fn fetch_is_blocked_until_the_backoff_expires() {
+        let cooling = app_with(Some(PreviewEntry {
+            ready: false,
+            retry_at: Some(std::time::Instant::now() + RETRY_BACKOFF),
+        }));
+        assert!(!should_fetch(&cooling, "k"));
+
+        let elapsed = app_with(Some(PreviewEntry {
+            ready: false,
+            retry_at: Some(std::time::Instant::now() - RETRY_BACKOFF),
+        }));
+        assert!(should_fetch(&elapsed, "k"), "expired backoff must retry");
     }
 
     // ── cached_thumbnail_is_real ─────────────────────────────────────────
