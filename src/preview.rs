@@ -207,6 +207,22 @@ const CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const CACHE_MAX_FILES: usize = 4000;
 const CACHE_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(90 * 86400);
 
+const CACHE_EXT: &str = "img";
+const LEGACY_CACHE_EXT: &str = "png";
+
+fn cache_path(dir: &std::path::Path, key: &str) -> std::path::PathBuf {
+    dir.join(format!("{}.{}", key, CACHE_EXT))
+}
+
+pub fn image_dims(bytes: &[u8]) -> Option<(u32, u32)> {
+    let (w, h) = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()?;
+    (w > 0 && h > 0).then_some((w, h))
+}
+
 pub fn prune_thumbnail_cache(dir: &std::path::Path) -> (usize, u64) {
     prune_with(dir, CACHE_MAX_AGE, CACHE_MAX_FILES, CACHE_MAX_BYTES)
 }
@@ -222,8 +238,9 @@ fn prune_with(
         return (0, 0);
     };
     for e in rd.flatten() {
-        if e.path().extension().and_then(|x| x.to_str()) != Some("png") {
-            continue;
+        match e.path().extension().and_then(|x| x.to_str()) {
+            Some(CACHE_EXT) | Some(LEGACY_CACHE_EXT) => {}
+            _ => continue,
         }
         if let Ok(md) = e.metadata() {
             let mtime = md.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
@@ -309,20 +326,13 @@ fn thumbnail_candidates(url: &str) -> Vec<String> {
 }
 
 fn cached_thumbnail_is_real(path: &std::path::Path) -> bool {
-    use std::io::Read;
-    let mut head = [0u8; 24];
-    let Ok(mut f) = std::fs::File::open(path) else {
-        return false;
-    };
-    if f.read_exact(&mut head).is_err() || head[..8] != *b"\x89PNG\r\n\x1a\n" {
-        return false;
+    match std::fs::read(path) {
+        Ok(bytes) => matches!(image_dims(&bytes), Some(d) if d != PLACEHOLDER_DIMS),
+        Err(_) => false,
     }
-    let w = u32::from_be_bytes(head[16..20].try_into().unwrap());
-    let h = u32::from_be_bytes(head[20..24].try_into().unwrap());
-    (w > 0 && h > 0) && (w, h) != PLACEHOLDER_DIMS
 }
 
-async fn download_png(url: &str, dest: &std::path::Path) -> bool {
+async fn download_image(url: &str, dest: &std::path::Path) -> bool {
     let Ok(resp) = crate::innertube::http_client().get(url).send().await else {
         return false;
     };
@@ -332,33 +342,21 @@ async fn download_png(url: &str, dest: &std::path::Path) -> bool {
     let Ok(bytes) = resp.bytes().await else {
         return false;
     };
-    let Ok(img) = image::load_from_memory(&bytes) else {
-        return false;
-    };
-    if (img.width(), img.height()) == PLACEHOLDER_DIMS {
-        return false;
+    match image_dims(&bytes) {
+        Some(d) if d != PLACEHOLDER_DIMS => {}
+        _ => return false,
     }
-    let mut png_bytes = Vec::new();
-    if img
-        .write_to(
-            &mut std::io::Cursor::new(&mut png_bytes),
-            image::ImageFormat::Png,
-        )
-        .is_err()
-    {
-        return false;
-    }
-    tokio::fs::write(dest, &png_bytes).await.is_ok() && dest.exists()
+    tokio::fs::write(dest, &bytes).await.is_ok() && dest.exists()
 }
 
 async fn fetch_thumbnail(video_id: &str, thumbnail_url: &str, cache_dir: &std::path::Path) -> bool {
     let _ = tokio::fs::create_dir_all(cache_dir).await;
-    let img_path = cache_dir.join(format!("{}.png", video_id));
+    let img_path = cache_path(cache_dir, video_id);
     if cached_thumbnail_is_real(&img_path) {
         return true;
     }
     for url in thumbnail_candidates(thumbnail_url) {
-        if download_png(&url, &img_path).await {
+        if download_image(&url, &img_path).await {
             return true;
         }
     }
@@ -392,20 +390,12 @@ fn selected_video_id(app: &App) -> Option<String> {
     None
 }
 
-/// Compute (c, r) cell dimensions for a PNG that fit within (max_c, max_r) without stretching.
+/// Compute (c, r) cell dimensions for an image that fit within (max_c, max_r) without stretching.
 /// Assumes standard 8×16px terminal cells (so 1 row is twice as tall as 1 col in pixels).
-fn png_aspect_fit(png_bytes: &[u8], max_c: u16, max_r: u16) -> (u16, u16) {
-    // Read width/height from the PNG IHDR chunk (bytes 16–23).
-    let (img_w, img_h) = if png_bytes.len() >= 24 && png_bytes[0..8] == *b"\x89PNG\r\n\x1a\n" {
-        let w = u32::from_be_bytes([png_bytes[16], png_bytes[17], png_bytes[18], png_bytes[19]]);
-        let h = u32::from_be_bytes([png_bytes[20], png_bytes[21], png_bytes[22], png_bytes[23]]);
-        if w > 0 && h > 0 {
-            (w as f32, h as f32)
-        } else {
-            (16.0, 9.0)
-        }
-    } else {
-        (16.0, 9.0) // fallback: assume 16:9
+fn image_aspect_fit(bytes: &[u8], max_c: u16, max_r: u16) -> (u16, u16) {
+    let (img_w, img_h) = match image_dims(bytes) {
+        Some((w, h)) => (w as f32, h as f32),
+        None => (16.0, 9.0),
     };
 
     // cols_per_row: how many columns equal one row in pixel height (cell = 8px wide, 16px tall).
@@ -458,21 +448,21 @@ pub fn kitty_update_display(app: &mut App) {
         return;
     };
 
-    let img_path = config::youtube_preview_cache_dir().join(format!("{}.png", video_id));
+    let img_path = cache_path(&config::youtube_preview_cache_dir(), video_id);
     if !img_path.exists() {
         return;
     }
 
-    let Ok(png_bytes) = std::fs::read(&img_path) else {
+    let Ok(bytes) = std::fs::read(&img_path) else {
         return;
     };
 
     // Terminal cells are ~8px wide × 16px tall, so 1 cell-row = 2 cell-columns in pixel height.
-    let (display_c, display_r) = png_aspect_fit(&png_bytes, tw, th);
+    let (display_c, display_r) = image_aspect_fit(&bytes, tw, th);
 
     match app.graphics {
-        GraphicsProtocol::Kitty => emit_kitty_image(&png_bytes, tx, ty, display_c, display_r),
-        GraphicsProtocol::ITerm2 => emit_iterm2_image(&png_bytes, tx, ty, display_c, display_r),
+        GraphicsProtocol::Kitty => emit_kitty_image(&bytes, tx, ty, display_c, display_r),
+        GraphicsProtocol::ITerm2 => emit_iterm2_image(&bytes, tx, ty, display_c, display_r),
         GraphicsProtocol::None => return,
     }
 
@@ -480,11 +470,11 @@ pub fn kitty_update_display(app: &mut App) {
 }
 
 /// Emit a thumbnail via the kitty graphics protocol at the given cell position.
-fn emit_kitty_image(png_bytes: &[u8], tx: u16, ty: u16, display_c: u16, display_r: u16) {
+fn emit_kitty_image(bytes: &[u8], tx: u16, ty: u16, display_c: u16, display_r: u16) {
     use base64::Engine;
     use std::io::Write;
 
-    let data_b64 = base64::engine::general_purpose::STANDARD.encode(png_bytes);
+    let data_b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
     let b64_bytes = data_b64.as_bytes();
 
     let mut stdout = std::io::stdout();
@@ -511,11 +501,11 @@ fn emit_kitty_image(png_bytes: &[u8], tx: u16, ty: u16, display_c: u16, display_
 }
 
 /// Emit a thumbnail via the iTerm2 inline-image protocol (also WezTerm).
-fn emit_iterm2_image(png_bytes: &[u8], tx: u16, ty: u16, display_c: u16, display_r: u16) {
+fn emit_iterm2_image(bytes: &[u8], tx: u16, ty: u16, display_c: u16, display_r: u16) {
     use base64::Engine;
     use std::io::Write;
 
-    let data_b64 = base64::engine::general_purpose::STANDARD.encode(png_bytes);
+    let data_b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
 
     let mut stdout = std::io::stdout();
     // Move cursor to the thumbnail area (1-indexed row/col).
@@ -526,7 +516,7 @@ fn emit_iterm2_image(png_bytes: &[u8], tx: u16, ty: u16, display_c: u16, display
         "\x1b]1337;File=inline=1;width={};height={};preserveAspectRatio=1;size={}:{}\x07",
         display_c,
         display_r,
-        png_bytes.len(),
+        bytes.len(),
         data_b64
     );
     let _ = stdout.flush();
@@ -559,13 +549,6 @@ fn clear_preview(app: &App) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn tmp_png(name: &str, w: u32, h: u32) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!("vidi-preview-test-{}.png", name));
-        let img = image::RgbImage::from_pixel(w, h, image::Rgb([20, 40, 60]));
-        img.save(&path).unwrap();
-        path
-    }
 
     // ── thumbnail_candidates ─────────────────────────────────────────────
 
@@ -734,18 +717,85 @@ mod tests {
         );
     }
 
+    // ── image_dims ───────────────────────────────────────────────────────
+
+    fn encode(w: u32, h: u32, fmt: image::ImageFormat) -> Vec<u8> {
+        let mut out = Vec::new();
+        image::DynamicImage::new_rgb8(w, h)
+            .write_to(&mut std::io::Cursor::new(&mut out), fmt)
+            .unwrap();
+        out
+    }
+
+    #[test]
+    fn dims_are_read_from_jpeg_png_and_webp() {
+        for fmt in [
+            image::ImageFormat::Jpeg,
+            image::ImageFormat::Png,
+            image::ImageFormat::WebP,
+        ] {
+            assert_eq!(
+                image_dims(&encode(1280, 720, fmt)),
+                Some((1280, 720)),
+                "{:?}",
+                fmt
+            );
+        }
+    }
+
+    #[test]
+    fn dims_reject_non_images_and_empty_input() {
+        assert_eq!(image_dims(b"not an image at all"), None);
+        assert_eq!(image_dims(&[]), None);
+    }
+
+    #[test]
+    fn aspect_fit_uses_real_dimensions_not_a_png_header() {
+        let jpeg = encode(1280, 720, image::ImageFormat::Jpeg);
+        assert_eq!(
+            image_aspect_fit(&jpeg, 40, 10),
+            image_aspect_fit(&encode(1280, 720, image::ImageFormat::Png), 40, 10)
+        );
+        let tall = encode(480, 640, image::ImageFormat::Jpeg);
+        let (c, r) = image_aspect_fit(&tall, 40, 10);
+        assert!(
+            (1..=40).contains(&c) && (1..=10).contains(&r),
+            "{}x{}",
+            c,
+            r
+        );
+    }
+
+    #[test]
+    fn aspect_fit_falls_back_to_16_9_for_unreadable_data() {
+        // 8 rows of 16:9 at 2:1 cells is round(8 * 16/9 * 2) = 28 columns.
+        assert_eq!(image_aspect_fit(b"garbage", 40, 8), (28, 8));
+        assert_eq!(
+            image_aspect_fit(b"", 40, 8),
+            image_aspect_fit(&encode(1280, 720, image::ImageFormat::Jpeg), 40, 8)
+        );
+    }
+
     // ── cached_thumbnail_is_real ─────────────────────────────────────────
 
     #[test]
     fn cached_placeholder_is_rejected_so_it_gets_refetched() {
-        let p = tmp_png("placeholder", PLACEHOLDER_DIMS.0, PLACEHOLDER_DIMS.1);
-        assert!(!cached_thumbnail_is_real(&p));
-        let _ = std::fs::remove_file(&p);
+        for (tag, fmt) in [
+            ("jpg", image::ImageFormat::Jpeg),
+            ("png", image::ImageFormat::Png),
+        ] {
+            let p =
+                std::env::temp_dir().join(format!("vidi-preview-test-ph-{}.{}", tag, CACHE_EXT));
+            std::fs::write(&p, encode(PLACEHOLDER_DIMS.0, PLACEHOLDER_DIMS.1, fmt)).unwrap();
+            assert!(!cached_thumbnail_is_real(&p), "{}", tag);
+            let _ = std::fs::remove_file(&p);
+        }
     }
 
     #[test]
     fn cached_real_thumbnail_is_accepted() {
-        let p = tmp_png("real", 1280, 720);
+        let p = std::env::temp_dir().join(format!("vidi-preview-test-real.{}", CACHE_EXT));
+        std::fs::write(&p, encode(1280, 720, image::ImageFormat::Jpeg)).unwrap();
         assert!(cached_thumbnail_is_real(&p));
         let _ = std::fs::remove_file(&p);
     }
@@ -753,12 +803,45 @@ mod tests {
     #[test]
     fn missing_and_corrupt_cache_entries_are_rejected() {
         assert!(!cached_thumbnail_is_real(
-            &std::env::temp_dir().join("vidi-does-not-exist.png")
+            &std::env::temp_dir().join("vidi-does-not-exist.img")
         ));
-        let junk = std::env::temp_dir().join("vidi-preview-test-junk.png");
+        let junk = std::env::temp_dir().join(format!("vidi-preview-test-junk.{}", CACHE_EXT));
         std::fs::write(&junk, b"not an image at all, definitely not").unwrap();
         assert!(!cached_thumbnail_is_real(&junk));
         let _ = std::fs::remove_file(&junk);
+    }
+
+    #[test]
+    fn prune_also_reclaims_legacy_png_entries() {
+        let dir = std::env::temp_dir().join("vidi-prune-legacy");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(format!("a.{}", LEGACY_CACHE_EXT)), b"x").unwrap();
+        std::fs::write(dir.join(format!("b.{}", CACHE_EXT)), b"y").unwrap();
+        std::fs::write(dir.join("keep.txt"), b"z").unwrap();
+        let (removed, _) = prune_with(&dir, FOREVER, 0, 0);
+        assert_eq!(removed, 2, "both extensions pruned");
+        assert!(dir.join("keep.txt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    #[ignore = "needs network"]
+    async fn fetch_stores_the_source_bytes_untouched() {
+        let dir = std::env::temp_dir().join("vidi-preview-test-net");
+        let key = "raw-probe";
+        let dest = cache_path(&dir, key);
+        drop(tokio::fs::remove_file(&dest).await);
+        let url = "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg";
+
+        let ok = fetch_thumbnail(key, url, &dir).await;
+
+        assert!(ok);
+        let stored = std::fs::read(&dest).unwrap();
+        let served = reqwest::get(url).await.unwrap().bytes().await.unwrap();
+        assert_eq!(stored, served.as_ref(), "stored verbatim, not re-encoded");
+        assert_eq!(image_dims(&stored), Some((1280, 720)));
+        let _ = std::fs::remove_file(&dest);
     }
 
     #[tokio::test]
@@ -766,8 +849,8 @@ mod tests {
     async fn fetch_falls_back_past_ytimg_404_to_a_size_that_exists() {
         let dir = std::env::temp_dir().join("vidi-preview-test-net");
         let key = "fallback-probe";
-        let dest = dir.join(format!("{}.png", key));
-        let _ = std::fs::remove_file(&dest);
+        let dest = cache_path(&dir, key);
+        drop(tokio::fs::remove_file(&dest));
 
         let ok = fetch_thumbnail(
             key,
@@ -778,10 +861,9 @@ mod tests {
 
         assert!(ok, "fallback chain should reach hqdefault");
         assert!(cached_thumbnail_is_real(&dest));
-        let decoded = image::open(&dest).unwrap();
         assert_ne!(
-            (decoded.width(), decoded.height()),
-            PLACEHOLDER_DIMS,
+            image_dims(&std::fs::read(&dest).unwrap()),
+            Some(PLACEHOLDER_DIMS),
             "placeholder must never be cached"
         );
         let _ = std::fs::remove_file(&dest);
@@ -792,8 +874,8 @@ mod tests {
     async fn fetch_reports_failure_instead_of_caching_a_placeholder() {
         let dir = std::env::temp_dir().join("vidi-preview-test-net");
         let key = "no-such-video";
-        let dest = dir.join(format!("{}.png", key));
-        let _ = std::fs::remove_file(&dest);
+        let dest = cache_path(&dir, key);
+        drop(tokio::fs::remove_file(&dest));
 
         let ok = fetch_thumbnail(
             key,
@@ -815,13 +897,16 @@ mod tests {
         let dir = std::env::temp_dir().join("vidi-preview-test-net");
         let _ = std::fs::create_dir_all(&dir);
         let key = "stale-placeholder";
-        let dest = dir.join(format!("{}.png", key));
-        let img = image::RgbImage::from_pixel(
-            PLACEHOLDER_DIMS.0,
-            PLACEHOLDER_DIMS.1,
-            image::Rgb([128, 128, 128]),
-        );
-        img.save(&dest).unwrap();
+        let dest = cache_path(&dir, key);
+        std::fs::write(
+            &dest,
+            encode(
+                PLACEHOLDER_DIMS.0,
+                PLACEHOLDER_DIMS.1,
+                image::ImageFormat::Jpeg,
+            ),
+        )
+        .unwrap();
         assert!(!cached_thumbnail_is_real(&dest));
 
         let ok = fetch_thumbnail(
