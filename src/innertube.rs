@@ -116,18 +116,8 @@ fn thumb_dims(t: &Value) -> Option<(u32, u32)> {
     (w > 0 && h > 0).then_some((w, h))
 }
 
-fn thumb_is_widescreen(t: &Value) -> bool {
-    match thumb_dims(t) {
-        Some((w, h)) => ((w as f64 / h as f64) - 16.0 / 9.0).abs() < 0.15,
-        None => false,
-    }
-}
-
-fn widest_thumbnail<'a>(srcs: &[&'a Value]) -> Option<&'a Value> {
-    srcs.iter()
-        .filter_map(|t| Some((*t, thumb_dims(t)?)))
-        .max_by_key(|(_, (w, _))| *w)
-        .map(|(t, _)| t)
+fn thumb_is_widescreen(w: u32, h: u32) -> bool {
+    ((w as f64 / h as f64) - 16.0 / 9.0).abs() < 0.15
 }
 
 pub(crate) fn best_thumbnail(sources: &[Value]) -> Option<String> {
@@ -135,9 +125,22 @@ pub(crate) fn best_thumbnail(sources: &[Value]) -> Option<String> {
         let u = t.get("url")?.as_str()?;
         Some(u.split('?').next().unwrap_or(u).to_string())
     };
-    let widescreen: Vec<&Value> = sources.iter().filter(|t| thumb_is_widescreen(t)).collect();
-    widest_thumbnail(&widescreen)
-        .or_else(|| widest_thumbnail(&sources.iter().collect::<Vec<_>>()))
+    let mut best_wide: Option<(u32, &Value)> = None;
+    let mut best_any: Option<(u32, &Value)> = None;
+    for t in sources {
+        let Some((w, h)) = thumb_dims(t) else {
+            continue;
+        };
+        if w > best_any.map_or(0, |(bw, _)| bw) {
+            best_any = Some((w, t));
+        }
+        if thumb_is_widescreen(w, h) && w > best_wide.map_or(0, |(bw, _)| bw) {
+            best_wide = Some((w, t));
+        }
+    }
+    best_wide
+        .or(best_any)
+        .map(|(_, t)| t)
         .and_then(clean)
         .or_else(|| sources.last().and_then(clean))
 }
