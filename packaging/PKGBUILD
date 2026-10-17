@@ -6,8 +6,11 @@ pkgdesc="Terminal UI for YouTube, Twitch, Kick and PeerTube"
 arch=('x86_64' 'aarch64')
 url="https://codeberg.org/Fel/Vidi"
 license=('MIT')
-# vidi pins YouTube player clients that yt-dlp >= 2026.08.19 understands.
-depends=('yt-dlp>=2026.08.19' 'mpv')
+# vidi pins YouTube player clients that need yt-dlp >= 2026.08.19. Not a hard
+# `depends` on purpose: yt-dlp-git/nightly declare an unversioned `Provides`,
+# which pacman will not match against a version constraint, so requiring it here
+# would make those users unable to install. vidi warns at startup instead.
+depends=('yt-dlp' 'mpv')
 optdepends=(
   'streamlink: Twitch and Kick live stream status and playback'
   'kitty: inline thumbnail previews'

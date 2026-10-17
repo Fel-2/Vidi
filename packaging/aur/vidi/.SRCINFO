@@ -1,6 +1,6 @@
 pkgbase = vidi
-	pkgdesc = Terminal UI for YouTube, Twitch and PeerTube
-	pkgver = 0.4.0
+	pkgdesc = Terminal UI for YouTube, Twitch, Kick and PeerTube
+	pkgver = 0.6.4
 	pkgrel = 1
 	url = https://codeberg.org/Fel/Vidi
 	arch = x86_64
@@ -10,7 +10,7 @@ pkgbase = vidi
 	depends = yt-dlp
 	depends = mpv
 	depends = gcc-libs
-	optdepends = streamlink: Twitch live stream status and playback
+	optdepends = streamlink: Twitch and Kick live stream status and playback
 	optdepends = kitty: inline thumbnail previews
 	optdepends = ghostty: inline thumbnail previews
 	optdepends = wezterm: inline thumbnail previews
@@ -18,7 +18,7 @@ pkgbase = vidi
 	conflicts = vidi-bin
 	conflicts = vidi-git
 	options = !lto
-	source = vidi-0.4.0.tar.gz::https://github.com/Fel-2/Vidi/archive/refs/tags/v0.4.0.tar.gz
-	sha256sums = afca0a0fc914d992d8656f40835e72985ac13e0ed7d9aa6e5da2b86812c9fdb0
+	source = vidi-0.6.4.tar.gz::https://github.com/Fel-2/Vidi/archive/refs/tags/v0.6.4.tar.gz
+	sha256sums = 204578215d9cbbf2cdfb81c83515974992aac288ddbdfe930303162ba9288288
 
 pkgname = vidi

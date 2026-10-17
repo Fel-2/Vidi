@@ -1,11 +1,15 @@
 # Maintainer: Fel <exwin00@proton.me>
 pkgname=vidi
-pkgver=0.4.0
+pkgver=0.6.4
 pkgrel=1
 pkgdesc="Terminal UI for YouTube, Twitch, Kick and PeerTube"
 arch=('x86_64' 'aarch64')
 url="https://codeberg.org/Fel/Vidi"
 license=('MIT')
+# vidi pins YouTube player clients that need yt-dlp >= 2026.08.19. Not a hard
+# `depends` on purpose: yt-dlp-git/nightly declare an unversioned `Provides`,
+# which pacman will not match against a version constraint. vidi warns at
+# startup instead, and that covers non-pacman installs too.
 depends=('yt-dlp' 'mpv' 'gcc-libs')
 optdepends=(
   'streamlink: Twitch and Kick live stream status and playback'
@@ -19,7 +23,7 @@ conflicts=('vidi-bin' 'vidi-git')
 # ring ships C objects that makepkg's default LTO cannot link.
 options=('!lto')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/Fel-2/Vidi/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('afca0a0fc914d992d8656f40835e72985ac13e0ed7d9aa6e5da2b86812c9fdb0')
+sha256sums=('204578215d9cbbf2cdfb81c83515974992aac288ddbdfe930303162ba9288288')
 
 prepare() {
   cd "Vidi-$pkgver"
