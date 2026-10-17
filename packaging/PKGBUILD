@@ -1,12 +1,13 @@
 # Maintainer: Fel <exwin00@proton.me>
 pkgname=vidi-git
-pkgver=0.6.3
+pkgver=0.6.4
 pkgrel=1
 pkgdesc="Terminal UI for YouTube, Twitch, Kick and PeerTube"
 arch=('x86_64' 'aarch64')
 url="https://codeberg.org/Fel/Vidi"
 license=('MIT')
-depends=('yt-dlp' 'mpv')
+# vidi pins YouTube player clients that yt-dlp >= 2026.08.19 understands.
+depends=('yt-dlp>=2026.08.19' 'mpv')
 optdepends=(
   'streamlink: Twitch and Kick live stream status and playback'
   'kitty: inline thumbnail previews'
