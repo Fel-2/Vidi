@@ -65,7 +65,7 @@ A terminal UI for YouTube, Twitch, Kick and PeerTube, written in Rust.
 
 ## Dependencies
 
-- [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
+- [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) — **2026.08.19 or newer** (see [Playback and downloads](#playback-and-downloads))
 - [`mpv`](https://mpv.io/)
 - [`streamlink`](https://streamlink.github.io/) — Twitch and Kick streams
 - `wl-clipboard`, `xclip` or `xsel` — copying URLs with `y` (optional)
@@ -108,7 +108,7 @@ Config files are created automatically on first run:
 
 | File | Purpose |
 |------|---------|
-| `~/.config/vidi/vidi.conf` | Player, quality, result limits, `PLATFORMS`, `WATCH_PROGRESS`, `SPONSORBLOCK`, `CHECK_UPDATES` |
+| `~/.config/vidi/vidi.conf` | Player, quality, result limits, `PLATFORMS`, `WATCH_PROGRESS`, `SPONSORBLOCK`, `YTDLP_CLIENT`, `CHECK_UPDATES` |
 | `~/.config/vidi/subscriptions` | YouTube channel URLs (one per line) |
 | `~/.config/vidi/twitch.conf` | Twitch player and quality settings |
 | `~/.config/vidi/twitch_subs` | Twitch usernames (one per line) |
@@ -150,6 +150,32 @@ scripts/name-subscriptions.py
 It reuses the cache where possible and only calls `yt-dlp` (4 at a time) for
 names it doesn't already know. The original is backed up to `subscriptions.bak`.
 
+## Playback and downloads
+
+vidi hands the video URL to `mpv`, which asks `yt-dlp` to work out the actual
+stream URLs. That means playback depends on what yt-dlp decides to ask YouTube
+for — and yt-dlp's own defaults change from release to release without warning,
+so a new default can break playback for everyone running vidi.
+
+To keep that decision ours, vidi pins the YouTube player clients it asks for:
+
+```
+YTDLP_CLIENT: visionos,web
+```
+
+`visionos` leads because it is the one client that needs neither a PO token nor
+a JavaScript runtime — no cookies, no browser, nothing to keep in sync. `web` is
+a fallback. vidi sets this explicitly on every yt-dlp invocation it makes, so it
+takes precedence over both yt-dlp's defaults *and* any `~/.config/yt-dlp/config`
+you have. Override `YTDLP_CLIENT` if YouTube starts refusing the defaults; the
+extractor argument accepts the usual yt-dlp client names.
+
+This needs yt-dlp **2026.08.19 or newer**, the first release that knows the
+`visionos` client; older builds ignore clients they don't recognise and fall
+back to their own defaults (vidi warns at startup when it sees that).
+
+Downloads pin the same clients, so they don't drift either.
+
 ## Keybindings
 
 | Key | Action |
@@ -187,7 +213,7 @@ can seek through locally.
 
 ### A video occasionally fails to start
 
-Now and then mpv exits immediately with something like:
+Now and then a launch fails like this:
 
 ```
 [ffmpeg] https: HTTP error 403 Forbidden
@@ -195,7 +221,8 @@ Failed to open https://rr2---sn-....googlevideo.com/videoplayback?...
 No video or audio streams selected.
 ```
 
-**Just play it again — it usually works on the second or third try.**
+**vidi retries this for you**, so it usually resolves itself within a second or
+two. You do not need to press anything.
 
 This is a transient rejection by YouTube's media CDN, not a problem with vidi,
 yt-dlp or your setup. Because `bestvideo+bestaudio` streams the video and audio
@@ -204,13 +231,18 @@ playback. The refused URL is still valid: requesting it again seconds later
 succeeds. Measured on a sample of 60 launches, roughly 15% failed this way, in
 bursts.
 
+vidi retries non-destructively: once with the same client (fresh URLs, same
+quality), then once on its fallback client, which may be lower quality but plays.
+If a video still won't start, the pinned client is the likely cause — see
+[Playback and downloads](#playback-and-downloads) for `YTDLP_CLIENT`.
+
 Retrying is safe here — the 403 comes from the media servers, not from YouTube's
 API, so it is not a rate limit or a bot check and does not count against you.
 
-One exception: do **not** keep retrying an error that says "Sign in to confirm
-you're not a bot", "Video unavailable", or names a geo restriction. Those are
-permanent for that request, and hammering the bot check can get your IP flagged
-for real.
+One exception: vidi deliberately does **not** retry "Sign in to confirm you're
+not a bot", "Video unavailable", or geo/membership refusals. Those are permanent
+for that request, and hammering the bot check can get your IP flagged for real.
+If you see one of those, the video itself is the problem.
 
 ## License
 

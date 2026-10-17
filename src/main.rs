@@ -156,6 +156,41 @@ fn binary_exists(bin: &str) -> bool {
     std::env::split_paths(&paths).any(|dir| dir.join(bin).is_file())
 }
 
+/// Warn when yt-dlp predates the player clients vidi pins (see
+/// [`player::YTDLP_CLIENTS`]). Older builds ignore unknown clients and fall back
+/// to their own defaults, which is exactly the arrangement vidi stopped
+/// trusting — so say so rather than letting playback fail mysteriously.
+fn check_yt_dlp_version() {
+    if !binary_exists("yt-dlp") {
+        return;
+    }
+    let Ok(output) = std::process::Command::new("yt-dlp")
+        .arg("--version")
+        .output()
+    else {
+        return;
+    };
+    let Ok(stdout) = String::from_utf8(output.stdout) else {
+        return;
+    };
+    let Some(version) = player::parse_ytdlp_version(&stdout) else {
+        return;
+    };
+    if version >= player::MIN_YTDLP_VERSION {
+        return;
+    }
+    let (min_major, min_minor, min_patch) = player::MIN_YTDLP_VERSION;
+    eprintln!(
+        "vidi: yt-dlp {}.{:02}.{:02} is older than {}.{:02}.{:02}.",
+        version.0, version.1, version.2, min_major, min_minor, min_patch
+    );
+    eprintln!(
+        "      vidi pins YouTube player clients that older yt-dlp builds ignore,\n\
+         \x20     so playback and downloads may fail. Consider upgrading yt-dlp\n\
+         \x20     (distro package, or `yt-dlp -U` for a standalone install)."
+    );
+}
+
 /// Warn (to stderr) about missing external tools. Does not abort: the user may
 /// only use a subset of features, or have a custom player configured.
 fn check_dependencies(cfg: &config::Config) {
@@ -194,6 +229,8 @@ fn check_dependencies(cfg: &config::Config) {
         .into_iter()
         .filter(|(bin, _)| !binary_exists(bin))
         .collect();
+
+    check_yt_dlp_version();
 
     if missing.is_empty() {
         return;

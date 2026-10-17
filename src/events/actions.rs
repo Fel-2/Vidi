@@ -15,28 +15,77 @@ use crate::ui::{
     VIDEO_ACTION_ITEMS,
 };
 use crate::{chat, kick, peertube, player, twitch, youtube};
+use anyhow::Result;
 use crossterm::event::{self, KeyCode};
 
 use super::open_url_in_browser;
 
-/// Launch mpv for a single video with resume + IPC progress tracking and
-/// optional SponsorBlock chapter marking.
-async fn watch_video(app: &mut App, video: &Video, quality: &str) {
-    let mut args = player::mpv_watch_args(&video.url, &video.title, quality);
+/// One mpv attempt for `video`, returning its exit status and mpv's own log.
+///
+/// `--log-file` is what makes failure *classifiable*: it captures mpv's errors
+/// (including ytdl_hook's) without disturbing what the user sees on screen.
+async fn attempt_watch(
+    app: &App,
+    video: &Video,
+    quality: &str,
+    clients: &str,
+    resume: Option<f64>,
+) -> Result<(std::process::ExitStatus, String)> {
+    let log = player::log_path();
+    let mut args = player::mpv_watch_args(&video.url, &video.title, quality, clients);
     args.extend(player::mpv_sponsorblock_args(
         &app.config.youtube.sponsorblock,
         &video.url,
     ));
+    args.push(format!("--log-file={}", log.display()));
+    if let Some(start) = resume {
+        args.push(format!("--start={}", start as u64));
+    }
     if app.config.youtube.watch_progress && !video.id.is_empty() {
-        if let Some(start) = crate::progress::resume_position(&video.id) {
-            args.push(format!("--start={}", start as u64));
-        }
         let socket = crate::progress::socket_path();
         args.extend(crate::progress::mpv_ipc_args(&socket));
         tokio::spawn(crate::progress::track(socket, video.id.clone()));
     }
     let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    let _ = player::launch_external(&args_str).await;
+    let status = player::launch_external_status(&args_str).await;
+    let log_text = tokio::fs::read_to_string(&log).await.unwrap_or_default();
+    let _ = tokio::fs::remove_file(&log).await;
+    Ok((status?, log_text))
+}
+
+/// Launch mpv for a single video with resume + IPC progress tracking and
+/// optional SponsorBlock chapter marking.
+async fn watch_video(app: &mut App, video: &Video, quality: &str) {
+    // Read the resume point once, up front: a failed attempt must not move it,
+    // and every retry should start where the user left off.
+    let resume = if app.config.youtube.watch_progress && !video.id.is_empty() {
+        crate::progress::resume_position(&video.id)
+    } else {
+        None
+    };
+
+    // Even a pinned client can be refused. YouTube's CDN rejects individual
+    // URLs transiently (the README measures that at roughly 15% of launches),
+    // and it can gate an entire client without notice. yt-dlp recovers from
+    // neither on its own — it only advances its client chain when *extraction*
+    // fails, and in both cases extraction succeeds. So retry here: once as-is
+    // (fresh URLs, same quality), then on the fallback client, which may be
+    // lower quality but plays. Permanent refusals are never replayed.
+    let primary = app.config.youtube.ytdlp_client.clone();
+    let mut attempts = vec![primary.clone(), primary.clone()];
+    if primary.trim() != player::YTDLP_CLIENTS_FALLBACK {
+        attempts.push(player::YTDLP_CLIENTS_FALLBACK.to_string());
+    }
+    for (index, clients) in attempts.iter().enumerate() {
+        let Ok((status, log)) = attempt_watch(app, video, quality, clients, resume).await else {
+            break;
+        };
+        let last_attempt = index + 1 == attempts.len();
+        if status.success() || last_attempt || !player::should_retry_playback(&log) {
+            break;
+        }
+    }
+
     if app.config.youtube.update_recent {
         youtube::add_to_recent(video, app.config.youtube.no_of_recent).ok();
     }
@@ -57,7 +106,7 @@ pub(super) async fn watch_live_stream(app: &mut App, stream: &TwitchStream, deta
         Some(id) => {
             let url = format!("https://www.twitch.tv/videos/{id}");
             let quality = player::twitch_quality_to_height(&app.config.twitch.quality);
-            let mut args = player::mpv_watch_args(&url, &stream.title, &quality);
+            let mut args = player::mpv_watch_args(&url, &stream.title, &quality, "");
             if app.config.youtube.watch_progress {
                 let key = format!("twitchvod_{id}");
                 if let Some(start) = crate::progress::resume_position(&key) {
@@ -114,7 +163,7 @@ pub(super) async fn watch_kick_vod(app: &mut App, vod: &KickVod) {
         }
     };
 
-    let args = player::mpv_watch_args(&playback_url, &vod.title, &quality);
+    let args = player::mpv_watch_args(&playback_url, &vod.title, &quality, "");
     let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     let _ = player::launch_external(&args_str).await;
 }
@@ -185,6 +234,7 @@ pub(super) async fn video_action_execute(app: &mut App, video: &Video, action: &
     let quality = &app.config.youtube.video_quality.clone();
     let download_dir = app.config.youtube.download_directory.clone();
     let sponsorblock = app.config.youtube.sponsorblock.clone();
+    let clients = app.config.youtube.ytdlp_client.clone();
 
     match action {
         "Watch" => {
@@ -199,7 +249,7 @@ pub(super) async fn video_action_execute(app: &mut App, video: &Video, action: &
         }
         "Play All" => {
             let playlist_url = video.playlist_url.as_deref().unwrap_or(&video.url);
-            let mut args = player::mpv_watch_args(playlist_url, &video.title, quality);
+            let mut args = player::mpv_watch_args(playlist_url, &video.title, quality, &clients);
             args.extend(player::mpv_sponsorblock_args(&sponsorblock, playlist_url));
             let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
             let _ = player::launch_external(&args_str).await;
@@ -210,8 +260,9 @@ pub(super) async fn video_action_execute(app: &mut App, video: &Video, action: &
             let tx = app.tx.clone();
             let title = video.title.clone();
             let sb = sponsorblock.clone();
+            let clients = clients.clone();
             tokio::spawn(async move {
-                let mut args = player::ytdlp_download_args(&url, &dl_dir);
+                let mut args = player::ytdlp_download_args(&url, &dl_dir, &clients);
                 args.extend(player::ytdlp_sponsorblock_args(&sb, &url));
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = tx.send(AppEvent::DownloadStarted(format!("Downloading: {}", title)));
@@ -237,8 +288,9 @@ pub(super) async fn video_action_execute(app: &mut App, video: &Video, action: &
             let tx = app.tx.clone();
             let title = video.title.clone();
             let sb = sponsorblock.clone();
+            let clients = clients.clone();
             tokio::spawn(async move {
-                let mut args = player::ytdlp_download_audio_args(&url, &dl_dir);
+                let mut args = player::ytdlp_download_audio_args(&url, &dl_dir, &clients);
                 args.extend(player::ytdlp_sponsorblock_args(&sb, &url));
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = tx.send(AppEvent::DownloadStarted(format!(
@@ -269,8 +321,9 @@ pub(super) async fn video_action_execute(app: &mut App, video: &Video, action: &
             let dl_dir = download_dir.clone();
             let tx = app.tx.clone();
             let sb = sponsorblock.clone();
+            let clients = clients.clone();
             tokio::spawn(async move {
-                let mut args = player::ytdlp_download_args(&playlist_url, &dl_dir);
+                let mut args = player::ytdlp_download_args(&playlist_url, &dl_dir, &clients);
                 args.extend(player::ytdlp_sponsorblock_args(&sb, &playlist_url));
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = tx.send(AppEvent::DownloadStarted("Downloading all…".to_string()));
@@ -294,8 +347,9 @@ pub(super) async fn video_action_execute(app: &mut App, video: &Video, action: &
             let dl_dir = download_dir.clone();
             let tx = app.tx.clone();
             let sb = sponsorblock.clone();
+            let clients = clients.clone();
             tokio::spawn(async move {
-                let mut args = player::ytdlp_download_audio_args(&playlist_url, &dl_dir);
+                let mut args = player::ytdlp_download_audio_args(&playlist_url, &dl_dir, &clients);
                 args.extend(player::ytdlp_sponsorblock_args(&sb, &playlist_url));
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = tx.send(AppEvent::DownloadStarted(
@@ -608,7 +662,7 @@ pub(super) async fn handle_twitch_vod_actions(
             match action.as_str() {
                 "Watch VOD" => {
                     let quality = app.config.youtube.video_quality.clone();
-                    let mut args = player::mpv_watch_args(&va.vod.url, &va.vod.title, &quality);
+                    let mut args = player::mpv_watch_args(&va.vod.url, &va.vod.title, &quality, "");
                     // Resume + track playback position via mpv IPC, like YouTube.
                     if app.config.youtube.watch_progress && !va.vod.id.is_empty() {
                         let key = format!("twitchvod_{}", va.vod.id);
@@ -628,7 +682,7 @@ pub(super) async fn handle_twitch_vod_actions(
                     let tx = app.tx.clone();
                     let title = va.vod.title.clone();
                     tokio::spawn(async move {
-                        let args = player::ytdlp_download_args(&url, &dl_dir);
+                        let args = player::ytdlp_download_args(&url, &dl_dir, "");
                         let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                         let _ = tx.send(AppEvent::DownloadStarted(format!(
                             "Downloading VOD: {}",
@@ -765,7 +819,7 @@ pub(super) async fn handle_kick_vod_actions(
                     let tx = app.tx.clone();
                     let title = va.vod.title.clone();
                     tokio::spawn(async move {
-                        let args = player::ytdlp_download_args(&url, &dl_dir);
+                        let args = player::ytdlp_download_args(&url, &dl_dir, "");
                         let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                         let _ = tx.send(AppEvent::DownloadStarted(format!(
                             "Downloading VOD: {}",

@@ -307,7 +307,7 @@ async fn item_shortcut(app: &mut App, code: KeyCode, item: ListItem) {
         ItemData::TwitchVod(vod) => match code {
             KeyCode::Char('p') => {
                 let quality = app.config.youtube.video_quality.clone();
-                let args = player::mpv_watch_args(&vod.url, &vod.title, &quality);
+                let args = player::mpv_watch_args(&vod.url, &vod.title, &quality, "");
                 let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let _ = player::launch_external(&args_str).await;
             }
@@ -317,7 +317,7 @@ async fn item_shortcut(app: &mut App, code: KeyCode, item: ListItem) {
                 let title = vod.title.clone();
                 let tx = app.tx.clone();
                 tokio::spawn(async move {
-                    let args = player::ytdlp_download_args(&url, &dl_dir);
+                    let args = player::ytdlp_download_args(&url, &dl_dir, "");
                     let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                     let _ = tx.send(AppEvent::DownloadStarted(format!(
                         "Downloading VOD: {}",
@@ -360,7 +360,7 @@ async fn item_shortcut(app: &mut App, code: KeyCode, item: ListItem) {
                 let title = vod.title.clone();
                 let tx = app.tx.clone();
                 tokio::spawn(async move {
-                    let args = player::ytdlp_download_args(&url, &dl_dir);
+                    let args = player::ytdlp_download_args(&url, &dl_dir, "");
                     let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                     let _ = tx.send(AppEvent::DownloadStarted(format!(
                         "Downloading VOD: {}",
@@ -811,7 +811,11 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
                     return;
                 }
                 let urls: Vec<String> = app.queue.iter().map(|v| v.url.clone()).collect();
-                let mut args = player::mpv_queue_args(&urls, &app.config.youtube.video_quality);
+                let mut args = player::mpv_queue_args(
+                    &urls,
+                    &app.config.youtube.video_quality,
+                    &app.config.youtube.ytdlp_client,
+                );
                 if let Some(yt) = urls.iter().find(|u| player::is_youtube_url(u)) {
                     args.extend(player::mpv_sponsorblock_args(
                         &app.config.youtube.sponsorblock,

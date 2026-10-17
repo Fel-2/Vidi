@@ -22,6 +22,9 @@ pub struct YoutubeConfig {
     pub watch_progress: bool,
     /// SponsorBlock categories for mpv/yt-dlp ("" disables; e.g. "sponsor,selfpromo").
     pub sponsorblock: String,
+    /// YouTube player clients vidi pins for yt-dlp, comma-separated.
+    /// See [`crate::player::YTDLP_CLIENTS`]; empty means "pin nothing".
+    pub ytdlp_client: String,
     /// Show YouTube Shorts in lists and channel tabs (hidden by default).
     pub show_shorts: bool,
     /// Check for a newer release on launch and offer to install it.
@@ -45,6 +48,7 @@ impl Default for YoutubeConfig {
             pretty_print: true,
             watch_progress: true,
             sponsorblock: String::new(),
+            ytdlp_client: crate::player::YTDLP_CLIENTS.to_string(),
             show_shorts: false,
             check_updates: true,
         }
@@ -428,6 +432,14 @@ pub fn load_youtube_config() -> Result<YoutubeConfig> {
             v
         };
     }
+    if let Some(v) = parse_kv(&content, "YTDLP_CLIENT") {
+        // Blank falls back to the built-in pin, so a commented-out or empty key
+        // keeps following vidi's own default rather than freezing today's value.
+        let v = v.trim();
+        if !v.is_empty() {
+            cfg.ytdlp_client = v.to_string();
+        }
+    }
     if let Some(v) = parse_kv(&content, "SHOW_SHORTS") {
         cfg.show_shorts = v.to_lowercase() == "true";
     }
@@ -634,6 +646,11 @@ pub fn write_default_youtube_config() -> Result<()> {
          # SponsorBlock categories to skip (mpv) / remove (downloads).\n\
          # Comma-separated, e.g. sponsor,selfpromo,interaction — empty disables:\n\
          # SPONSORBLOCK: sponsor\n\
+         # YouTube player clients vidi asks yt-dlp to use (comma-separated).\n\
+         # Pinned so a change of yt-dlp's own defaults cannot break playback.\n\
+         # Leave unset to follow vidi's built-in pin; set your own if YouTube\n\
+         # starts refusing the defaults (see the README troubleshooting notes):\n\
+         # YTDLP_CLIENT: visionos,web\n\
          # Show YouTube Shorts in lists and channel tabs (hidden by default):\n\
          SHOW_SHORTS: false\n\
          # Check for a newer release on launch and offer to install it:\n\

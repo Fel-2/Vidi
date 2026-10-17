@@ -15,10 +15,11 @@ pub fn take_tui_suspended() -> bool {
     TUI_SUSPENDED.swap(false, Ordering::Relaxed)
 }
 
-/// Suspend TUI, run an external process, then restore TUI.
-pub async fn launch_external(args: &[&str]) -> Result<()> {
+/// Suspend TUI, run an external process, then restore TUI, returning its exit
+/// status so callers can react to a failed run (e.g. retry playback).
+pub async fn launch_external_status(args: &[&str]) -> Result<std::process::ExitStatus> {
     if args.is_empty() {
-        return Ok(());
+        anyhow::bail!("no command to run");
     }
     disable_raw_mode()?;
     execute!(stdout(), LeaveAlternateScreen)?;
@@ -32,8 +33,15 @@ pub async fn launch_external(args: &[&str]) -> Result<()> {
     execute!(stdout(), EnterAlternateScreen)?;
     TUI_SUSPENDED.store(true, Ordering::Relaxed);
 
-    status?;
-    Ok(())
+    status.context("failed to run external process")
+}
+
+/// Suspend TUI, run an external process, then restore TUI.
+pub async fn launch_external(args: &[&str]) -> Result<()> {
+    if args.is_empty() {
+        return Ok(());
+    }
+    launch_external_status(args).await.map(|_| ())
 }
 
 /// Spawn an external process in the background (no TUI suspend).
@@ -102,14 +110,78 @@ pub fn live_quality(quality: &str) -> String {
 /// which bury the terminal mpv shares with vidi. Errors still print.
 const QUIET_FFMPEG: &str = "--msg-level=ffmpeg=error";
 
-/// Build mpv arguments for watching a video.
-pub fn mpv_watch_args(url: &str, title: &str, quality: &str) -> Vec<String> {
+/// YouTube player clients vidi asks yt-dlp to use, using the upstream
+/// `youtube:player_client` extractor argument.
+///
+/// yt-dlp's own choice of clients is not vidi's to rely on. Upstream changes
+/// the defaults without notice, and a bad default breaks playback for every
+/// vidi user at once. The `tv_samsung` client added in 2026-10 served
+/// DRM-blocked / 403 formats for most videos, and yt-dlp only advances its
+/// client chain when *extraction* fails — extraction succeeded, so playback
+/// died with nothing to recover it. Pinning the client here keeps vidi's
+/// behaviour ours regardless of what upstream decides next.
+///
+/// `visionos` leads because it is the only client that needs neither a PO
+/// token nor a JS runtime; `web` is the backstop (its format 18 is exempt from
+/// PO tokens, so it still plays without one).
+pub const YTDLP_CLIENTS: &str = "visionos,web";
+
+/// Last-resort clients for the playback retry, when the pinned chain's formats
+/// are all refused. Lower quality, but plays when a whole client is gated.
+pub const YTDLP_CLIENTS_FALLBACK: &str = "web";
+
+/// First yt-dlp release that knows the `visionos` client (PR #17184, landed
+/// 2026-07-09; the first release after it is 2026.08.19), i.e. the oldest build
+/// that can honour vidi's pin. Older builds skip clients they don't recognise
+/// and silently use their own defaults instead.
+pub const MIN_YTDLP_VERSION: (u32, u32, u32) = (2026, 8, 19);
+
+/// Parse a yt-dlp version like `2026.08.19` or `2026.08.19.r34.g8973412` into a
+/// comparable tuple. Returns `None` for anything that isn't date-versioned, so
+/// an unusual build is never mistaken for an old one.
+pub fn parse_ytdlp_version(raw: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = raw.trim().split('.');
+    let mut fields = [0u32; 3];
+    for field in &mut fields {
+        *field = parts.next()?.parse().ok()?;
+    }
+    Some((fields[0], fields[1], fields[2]))
+}
+
+/// `--extractor-args youtube:player_client=…` for yt-dlp invocations.
+/// Empty for non-YouTube URLs, or when `clients` is blank.
+pub fn ytdlp_client_args(clients: &str, url: &str) -> Vec<String> {
+    let clients = clients.trim();
+    if clients.is_empty() || !is_youtube_url(url) {
+        return Vec::new();
+    }
+    vec![
+        "--extractor-args".to_string(),
+        format!("youtube:player_client={clients}"),
+    ]
+}
+
+/// The same pin for mpv, which runs its own yt-dlp through ytdl_hook.
+pub fn mpv_client_args(clients: &str, url: &str) -> Vec<String> {
+    let clients = clients.trim();
+    if clients.is_empty() || !is_youtube_url(url) {
+        return Vec::new();
+    }
+    vec![format!(
+        "--ytdl-raw-options-append=extractor-args=youtube:player_client={clients}"
+    )]
+}
+
+/// Build mpv arguments for watching a video. `clients` is the YouTube player
+/// client chain to pin (see [`YTDLP_CLIENTS`]); it is ignored for other sites.
+pub fn mpv_watch_args(url: &str, title: &str, quality: &str, clients: &str) -> Vec<String> {
     let mut args = vec!["mpv".to_string(), url.to_string()];
     if !title.is_empty() {
         args.push(format!("--force-media-title={}", title));
         args.push(format!("--script-opts-append=mpris-title={}", title));
     }
     args.push(format!("--ytdl-format={}", ytdl_format(quality)));
+    args.extend(mpv_client_args(clients, url));
     args.push(QUIET_FFMPEG.to_string());
     args
 }
@@ -144,14 +216,69 @@ pub async fn resolve_stream_url(url: &str, quality: &str) -> Result<String> {
 }
 
 /// Build mpv arguments to play several URLs back to back (the queue).
-pub fn mpv_queue_args(urls: &[String], quality: &str) -> Vec<String> {
+pub fn mpv_queue_args(urls: &[String], quality: &str, clients: &str) -> Vec<String> {
     let mut args = vec![
         "mpv".to_string(),
         format!("--ytdl-format={}", ytdl_format(quality)),
         QUIET_FFMPEG.to_string(),
     ];
+    if let Some(yt) = urls.iter().find(|u| is_youtube_url(u)) {
+        args.extend(mpv_client_args(clients, yt));
+    }
     args.extend(urls.iter().cloned());
     args
+}
+
+/// Fresh path for mpv's `--log-file`, used to classify playback failures.
+pub fn log_path() -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    crate::config::youtube_cache_dir().join(format!("mpv-{}-{}.log", std::process::id(), nanos))
+}
+
+/// Refusals that will not go away by trying again. Per the README: do not
+/// hammer a bot check, and do not retry permanent refusals.
+const PERMANENT_FAILURES: &[&str] = &[
+    // Matches both the ASCII and the typographic apostrophe yt-dlp uses.
+    "Sign in to confirm you",
+    "not a bot",
+    "Video unavailable",
+    "This video is not available",
+    "Private video",
+    "available in your country",
+    "Join this channel",
+    "Premieres in",
+    "Incomplete YouTube ID",
+    "Unsupported URL",
+];
+
+/// Symptoms of the shared-media failures worth one more attempt: YouTube's CDN
+/// refuses individual URLs transiently, and a gated player client refuses all
+/// of them at once. Both need a fresh extraction to recover.
+const RETRYABLE_FAILURES: &[&str] = &[
+    "Failed to open",
+    "Could not open source file",
+    "No video or audio streams selected",
+    "Failed to recognize file format",
+    "HTTP error 403",
+    "HTTP error 404",
+    "HTTP error 5",
+];
+
+/// True when the failure is permanent, so replaying it is pointless.
+pub fn failure_is_permanent(log: &str) -> bool {
+    PERMANENT_FAILURES.iter().any(|needle| log.contains(needle))
+}
+
+/// Whether mpv's log describes a failure worth retrying. Anything not
+/// recognised as a transient media failure is left alone.
+pub fn should_retry_playback(log: &str) -> bool {
+    if log.is_empty() || failure_is_permanent(log) {
+        return false;
+    }
+    RETRYABLE_FAILURES.iter().any(|needle| log.contains(needle))
 }
 
 pub fn is_youtube_url(url: &str) -> bool {
@@ -194,28 +321,38 @@ pub fn streamlink_args(url: &str, quality: &str, player: &str) -> Vec<String> {
 }
 
 /// Build yt-dlp download arguments for video.
-pub fn ytdlp_download_args(url: &str, download_dir: &std::path::Path) -> Vec<String> {
+pub fn ytdlp_download_args(
+    url: &str,
+    download_dir: &std::path::Path,
+    clients: &str,
+) -> Vec<String> {
     let output_template = download_dir
         .join("videos")
         .join("individual")
         .join("%(channel)s")
         .join("%(title)s.%(ext)s");
-    vec![
+    let mut args = vec![
         "yt-dlp".to_string(),
         url.to_string(),
         "--output".to_string(),
         output_template.to_string_lossy().to_string(),
-    ]
+    ];
+    args.extend(ytdlp_client_args(clients, url));
+    args
 }
 
 /// Build yt-dlp download arguments for audio only.
-pub fn ytdlp_download_audio_args(url: &str, download_dir: &std::path::Path) -> Vec<String> {
+pub fn ytdlp_download_audio_args(
+    url: &str,
+    download_dir: &std::path::Path,
+    clients: &str,
+) -> Vec<String> {
     let output_template = download_dir
         .join("audio")
         .join("individual")
         .join("%(channel)s")
         .join("%(title)s.%(ext)s");
-    vec![
+    let mut args = vec![
         "yt-dlp".to_string(),
         url.to_string(),
         "-x".to_string(),
@@ -225,7 +362,9 @@ pub fn ytdlp_download_audio_args(url: &str, download_dir: &std::path::Path) -> V
         "mp3".to_string(),
         "--output".to_string(),
         output_template.to_string_lossy().to_string(),
-    ]
+    ];
+    args.extend(ytdlp_client_args(clients, url));
+    args
 }
 
 #[cfg(test)]
@@ -235,7 +374,7 @@ mod tests {
 
     #[test]
     fn mpv_args_uses_script_opts_append() {
-        let args = mpv_watch_args("https://youtu.be/abc", "Test Title", "1080");
+        let args = mpv_watch_args("https://youtu.be/abc", "Test Title", "1080", YTDLP_CLIENTS);
         // Must use --script-opts-append, NOT --script-opts (comma-in-title bug)
         let opts_arg = args.iter().find(|a| a.contains("script-opts")).unwrap();
         assert!(opts_arg.starts_with("--script-opts-append="));
@@ -243,7 +382,12 @@ mod tests {
 
     #[test]
     fn mpv_args_title_with_comma() {
-        let args = mpv_watch_args("https://youtu.be/abc", "Monopoly, but SERIOUS.", "720");
+        let args = mpv_watch_args(
+            "https://youtu.be/abc",
+            "Monopoly, but SERIOUS.",
+            "720",
+            YTDLP_CLIENTS,
+        );
         let opts_arg = args.iter().find(|a| a.contains("mpris-title")).unwrap();
         assert_eq!(
             opts_arg,
@@ -253,7 +397,7 @@ mod tests {
 
     #[test]
     fn mpv_args_title_with_equals() {
-        let args = mpv_watch_args("https://youtu.be/abc", "a=b", "1080");
+        let args = mpv_watch_args("https://youtu.be/abc", "a=b", "1080", YTDLP_CLIENTS);
         let title_arg = args
             .iter()
             .find(|a| a.contains("force-media-title"))
@@ -263,7 +407,7 @@ mod tests {
 
     #[test]
     fn mpv_args_quality_format() {
-        let args = mpv_watch_args("https://youtu.be/abc", "T", "720");
+        let args = mpv_watch_args("https://youtu.be/abc", "T", "720", YTDLP_CLIENTS);
         let fmt_arg = args.iter().find(|a| a.contains("ytdl-format")).unwrap();
         assert!(fmt_arg.contains("height<=720"));
         assert!(!fmt_arg.contains("height<=1080"));
@@ -271,9 +415,125 @@ mod tests {
 
     #[test]
     fn mpv_args_contains_url() {
-        let args = mpv_watch_args("https://youtu.be/abc", "T", "1080");
+        let args = mpv_watch_args("https://youtu.be/abc", "T", "1080", YTDLP_CLIENTS);
         assert_eq!(args[0], "mpv");
         assert_eq!(args[1], "https://youtu.be/abc");
+    }
+
+    #[test]
+    fn mpv_args_pin_youtube_clients_only() {
+        let yt = mpv_watch_args("https://youtu.be/abc", "T", "1080", YTDLP_CLIENTS);
+        let pinned = yt
+            .iter()
+            .find(|a| a.contains("player_client"))
+            .expect("youtube playback must pin the client");
+        // Append, so a user's own raw options are not clobbered.
+        assert!(pinned.starts_with("--ytdl-raw-options-append="));
+        assert!(pinned.ends_with(&format!("player_client={YTDLP_CLIENTS}")));
+
+        // Other platforms must not be sent a YouTube extractor argument.
+        let twitch = mpv_watch_args("https://twitch.tv/x", "T", "1080", YTDLP_CLIENTS);
+        assert!(!twitch.iter().any(|a| a.contains("player_client")));
+    }
+
+    #[test]
+    fn mpv_args_blank_clients_pin_nothing() {
+        let args = mpv_watch_args("https://youtu.be/abc", "T", "1080", "  ");
+        assert!(!args.iter().any(|a| a.contains("player_client")));
+    }
+
+    #[test]
+    fn queue_pins_clients_when_any_entry_is_youtube() {
+        let urls = vec![
+            "https://twitch.tv/x".to_string(),
+            "https://youtu.be/abc".to_string(),
+        ];
+        let args = mpv_queue_args(&urls, "1080", YTDLP_CLIENTS);
+        assert!(args.iter().any(|a| a.contains("player_client=")));
+        assert_eq!(
+            args.iter().filter(|a| a.contains("player_client")).count(),
+            1
+        );
+
+        let all_twitch = vec!["https://twitch.tv/x".to_string()];
+        let args = mpv_queue_args(&all_twitch, "1080", YTDLP_CLIENTS);
+        assert!(!args.iter().any(|a| a.contains("player_client")));
+    }
+
+    #[test]
+    fn bot_check_is_not_retried() {
+        // Typographic apostrophe, as yt-dlp actually emits it.
+        let log = "[ytdl_hook] ERROR: [youtube] x: Sign in to confirm you\u{2019}re \
+                   not a bot. Use --cookies-from-browser\nFailed to open https://rr1\
+                   ---sn-x.googlevideo.com/videoplayback?itag=251\nNo video or audio \
+                   streams selected.";
+        assert!(failure_is_permanent(log));
+        assert!(!should_retry_playback(log));
+    }
+
+    #[test]
+    fn permanent_refusals_are_not_retried() {
+        for log in [
+            "[youtube] Video unavailable",
+            "[youtube] This video is not available",
+            "[youtube] Private video. Sign in if you've been granted access",
+            "[youtube] The uploader has not made this video available in your country",
+            "[youtube] Join this channel to get access to members-only content",
+        ] {
+            assert!(failure_is_permanent(log), "{log}");
+            assert!(!should_retry_playback(log), "{log}");
+        }
+    }
+
+    #[test]
+    fn transient_media_failures_are_retried() {
+        for log in [
+            "[ffmpeg] https: HTTP error 403 Forbidden\nFailed to open https://rr1\
+             ---sn-x.googlevideo.com/videoplayback?itag=251\nNo video or audio streams selected.",
+            "EDL: Could not open source file 'https://rr2---sn-x.googlevideo.com/videoplayback'",
+            "[ffmpeg] https: HTTP error 503 Service Unavailable",
+        ] {
+            assert!(should_retry_playback(log), "{log}");
+        }
+    }
+
+    #[test]
+    fn unrecognised_or_empty_failures_are_left_alone() {
+        // Nothing to go on, and anything we cannot name is not our business to
+        // replay — a retry loop is worse than a single clear failure.
+        assert!(!should_retry_playback(""));
+        assert!(!should_retry_playback("mpv: some unrelated complaint"));
+    }
+
+    #[test]
+    fn parses_dated_ytdlp_versions() {
+        assert_eq!(parse_ytdlp_version("2026.08.19"), Some((2026, 8, 19)));
+        // The version vidi last saw on an Arch `yt-dlp-git` build.
+        assert_eq!(
+            parse_ytdlp_version("2026.08.19.r34.g8973412\n"),
+            Some((2026, 8, 19))
+        );
+        assert_eq!(
+            parse_ytdlp_version("2026.10.10.123456"),
+            Some((2026, 10, 10))
+        );
+    }
+
+    #[test]
+    fn unversioned_builds_are_not_treated_as_old() {
+        // An odd version string must not produce a spurious upgrade warning.
+        assert_eq!(parse_ytdlp_version(""), None);
+        assert_eq!(parse_ytdlp_version("nightly"), None);
+        assert_eq!(parse_ytdlp_version("2026"), None);
+        assert_eq!(parse_ytdlp_version("v2026.08"), None);
+    }
+
+    #[test]
+    fn version_floor_matches_the_client_pin() {
+        // The floor exists only so the pinned clients are understood.
+        assert_eq!(parse_ytdlp_version("2026.07.04"), Some((2026, 7, 4)));
+        assert!(parse_ytdlp_version("2026.07.04").unwrap() < MIN_YTDLP_VERSION);
+        assert!(parse_ytdlp_version("2026.08.19").unwrap() >= MIN_YTDLP_VERSION);
     }
 
     #[test]
@@ -303,21 +563,33 @@ mod tests {
 
     #[test]
     fn ytdlp_download_args_output_template() {
-        let args = ytdlp_download_args("https://youtu.be/x", Path::new("/tmp/dl"));
+        let args = ytdlp_download_args("https://youtu.be/x", Path::new("/tmp/dl"), YTDLP_CLIENTS);
         assert_eq!(args[0], "yt-dlp");
         assert_eq!(args[1], "https://youtu.be/x");
         assert_eq!(args[2], "--output");
         assert!(args[3].contains("videos/individual"));
         assert!(args[3].contains("%(channel)s"));
+        assert!(args.contains(&format!("youtube:player_client={YTDLP_CLIENTS}")));
+    }
+
+    #[test]
+    fn download_args_pin_youtube_clients_only() {
+        let twitch = ytdlp_download_args("https://twitch.tv/videos/1", Path::new("/tmp/dl"), "");
+        assert!(!twitch.iter().any(|a| a.contains("player_client")));
     }
 
     #[test]
     fn ytdlp_audio_args_has_extract_audio() {
-        let args = ytdlp_download_audio_args("https://youtu.be/x", Path::new("/tmp/dl"));
+        let args =
+            ytdlp_download_audio_args("https://youtu.be/x", Path::new("/tmp/dl"), YTDLP_CLIENTS);
         assert!(args.contains(&"-x".to_string()));
         assert!(args.contains(&"bestaudio".to_string()));
         assert!(args.contains(&"mp3".to_string()));
-        let output_arg = args.last().unwrap();
-        assert!(output_arg.contains("audio/individual"));
+        // The client pin is appended, so find the template by its content.
+        let output_arg = args
+            .iter()
+            .find(|a| a.contains("audio/individual"))
+            .expect("output template");
+        assert!(output_arg.contains("%(title)s"));
     }
 }
