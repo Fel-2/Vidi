@@ -73,15 +73,20 @@ pub async fn run_background(args: &[&str]) -> Result<()> {
     Ok(())
 }
 
+const PREFER_NON_HLS: &str = "[protocol!*=m3u8]";
+
 /// Build an mpv `--ytdl-format` value for the requested quality.
 /// "best" (or empty) selects the highest available; otherwise `quality` is
 /// treated as a max height in pixels (e.g. "1080").
 pub fn ytdl_format(quality: &str) -> String {
     let q = quality.trim();
     if q.is_empty() || q.eq_ignore_ascii_case("best") {
-        "bestvideo+bestaudio/best".to_string()
+        format!("bestvideo{PREFER_NON_HLS}+bestaudio/bestvideo+bestaudio/best")
     } else {
-        format!("bestvideo[height<={q}]+bestaudio/best[height<={q}]/best")
+        format!(
+            "bestvideo[height<={q}]{PREFER_NON_HLS}+bestaudio/\
+             bestvideo[height<={q}]+bestaudio/best[height<={q}]/best"
+        )
     }
 }
 
@@ -411,6 +416,25 @@ mod tests {
         let fmt_arg = args.iter().find(|a| a.contains("ytdl-format")).unwrap();
         assert!(fmt_arg.contains("height<=720"));
         assert!(!fmt_arg.contains("height<=1080"));
+    }
+
+    #[test]
+    fn ytdl_format_avoids_hls_video() {
+        for quality in ["best", "", "1080", "720"] {
+            let selector = ytdl_format(quality);
+            let first = selector.split('/').next().unwrap();
+            assert!(first.contains(PREFER_NON_HLS), "{selector}");
+            assert!(first.starts_with("bestvideo"), "{selector}");
+        }
+    }
+
+    #[test]
+    fn ytdl_format_still_falls_back_to_hls() {
+        let selector = ytdl_format("1080");
+        assert!(selector.ends_with("/best"), "{selector}");
+        let alternatives: Vec<&str> = selector.split('/').collect();
+        assert!(alternatives.len() >= 3, "{selector}");
+        assert!(!alternatives[1].contains(PREFER_NON_HLS), "{selector}");
     }
 
     #[test]
