@@ -1,6 +1,6 @@
 # Maintainer: Fel <exwin00@proton.me>
 pkgname=vidi
-pkgver=0.6.4
+pkgver=0.6.5
 pkgrel=1
 pkgdesc="Terminal UI for YouTube, Twitch, Kick and PeerTube"
 arch=('x86_64' 'aarch64')
@@ -23,7 +23,7 @@ conflicts=('vidi-bin' 'vidi-git')
 # ring ships C objects that makepkg's default LTO cannot link.
 options=('!lto')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/Fel-2/Vidi/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('204578215d9cbbf2cdfb81c83515974992aac288ddbdfe930303162ba9288288')
+sha256sums=('b1743ab5b6814f3e9c31137c159af8c6078c55b3a139341a7454997e71083259')
 
 prepare() {
   cd "Vidi-$pkgver"
