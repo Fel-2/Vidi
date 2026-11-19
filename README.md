@@ -15,7 +15,7 @@ A terminal UI for YouTube, Twitch, Kick and PeerTube, written in Rust.
 
 **YouTube**
 - ⚡ Fast metadata via the Innertube API (no yt-dlp subprocess for lists; yt-dlp remains as fallback)
-- 🔥 Trending videos
+- 🔴 Live now: which of your subscriptions are streaming right now (Miscellaneous → Live Now (Global) for YouTube's site-wide Live list; the old Trending feed was retired upstream)
 - 🔍 Search with history
 - 📡 Subscription feed (parallel fetch, sorted by upload time, instant cached startup with background refresh)
 - 📋 Browse subscribed channels (Videos / Shorts / Streams / Playlists)

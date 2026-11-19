@@ -35,7 +35,7 @@ const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦
 // ── Public constants (values must not change) ─────────────────────────────────
 
 pub const YOUTUBE_MENU_ITEMS: &[&str] = &[
-    "Trending",
+    "Live Now",
     "Search",
     "Subscription Feed",
     "Channels",

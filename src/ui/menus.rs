@@ -21,7 +21,7 @@ const YV_ART: &[&str] = &[
 ];
 
 const YOUTUBE_MENU_DISPLAY: &[&str] = &[
-    "🔥  Trending",
+    "🔴  Live Now",
     "🔍  Search",
     "📡  Subscription Feed",
     "📋  Channels",

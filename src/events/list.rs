@@ -756,6 +756,26 @@ async fn handle_list_item_select(app: &mut App, item: ListItem, context: ListCon
                             context: SearchContext::ExplorePlaylists,
                         }));
                     }
+                    "Live Now (Global)" => {
+                        let limit = app.config.youtube.no_of_search_results as u32;
+                        let tx = app.tx.clone();
+                        app.loading = Some("Fetching live streams…".to_string());
+                        tokio::spawn(async move {
+                            match youtube::fetch_live(limit).await {
+                                Ok(items) => {
+                                    let _ = tx.send(AppEvent::VideoResults {
+                                        items,
+                                        context: ListContext::VideoActions,
+                                        title: "Live Now (Global)".to_string(),
+                                        channel_load_more: None,
+                                    });
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(AppEvent::Error(e.to_string()));
+                                }
+                            }
+                        });
+                    }
                     "Import Subscriptions" => {
                         app.push_screen(Screen::SearchInput(SearchInputScreen {
                             prompt:

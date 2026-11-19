@@ -1,6 +1,6 @@
 //! Direct YouTube Innertube (`youtubei/v1`) client.
 //!
-//! Fetches list metadata (search, trending, channel tabs, playlists) with a
+//! Fetches list metadata (search, live, channel tabs, playlists) with a
 //! single HTTP request instead of spawning yt-dlp, which is 10–50× faster.
 //! yt-dlp remains the fallback when parsing fails and is still used for
 //! stream URLs and downloads.
@@ -388,7 +388,9 @@ fn video_from_lockup(r: &Value, now: i64) -> Option<Video> {
                         .map(|id| format!("https://www.youtube.com/channel/{}", id))
                 })
                 .unwrap_or_default();
-        } else if view_count.is_none() && content.contains("view") {
+        } else if view_count.is_none() && (content.contains("view") || content.contains("watching"))
+        {
+            // Live entries report "1.2K watching" instead of a view count.
             view_count = parse_short_view_count(content);
         } else if timestamp.is_none() {
             timestamp = parse_relative_time(content, now);
@@ -562,11 +564,99 @@ pub async fn search_channels(query: &str, limit: usize) -> Result<Vec<Channel>> 
     Ok(channels)
 }
 
-pub async fn trending(limit: usize) -> Result<Vec<Video>> {
-    let videos = paginate("browse", json!({ "browseId": "FEtrending" }), limit).await?;
+/// Browse destination for the guide's "Live" entry. YouTube retired the
+/// `FEtrending` feed (HTTP 400 on every client now), so this is the closest
+/// surviving "what's happening" surface. It is Innertube-only.
+const LIVE_BROWSE_ID: &str = "UC4R8DWoMoI7CAwX8_LjQHig";
+
+pub async fn live_now(limit: usize) -> Result<Vec<Video>> {
+    let videos = paginate("browse", json!({ "browseId": LIVE_BROWSE_ID }), limit).await?;
     if videos.is_empty() {
-        anyhow::bail!("innertube trending returned no videos");
+        anyhow::bail!("innertube live destination returned no videos");
     }
+    Ok(videos)
+}
+
+/// True when a `lockupViewModel`'s thumbnail carries the LIVE badge. The
+/// badge style is language-independent, unlike the "LIVE" text.
+fn lockup_is_live(r: &Value) -> bool {
+    let mut badges = Vec::new();
+    if let Some(image) = r.get("contentImage") {
+        collect_key(image, "thumbnailBadgeViewModel", &mut badges);
+    }
+    badges.iter().any(|b| {
+        b.get("badgeStyle")
+            .and_then(|s| s.as_str())
+            .is_some_and(|s| s.contains("LIVE"))
+            || b.get("text")
+                .and_then(|t| t.as_str())
+                .is_some_and(|t| t.eq_ignore_ascii_case("LIVE"))
+    })
+}
+
+/// True when a `videoRenderer` is a live stream: either the LIVE badge or a
+/// "1,234 watching" viewer count, which YouTube only uses while live.
+fn renderer_is_live(r: &Value) -> bool {
+    let mut badges = Vec::new();
+    collect_key(r, "metadataBadgeRenderer", &mut badges);
+    if badges.iter().any(|b| {
+        b.get("style")
+            .and_then(|s| s.as_str())
+            .is_some_and(|s| s.contains("LIVE"))
+            || b.get("label")
+                .and_then(|t| t.as_str())
+                .is_some_and(|t| t.eq_ignore_ascii_case("LIVE"))
+    }) {
+        return true;
+    }
+    r.get("viewCountText")
+        .and_then(text_of)
+        .is_some_and(|t| t.contains("watching"))
+}
+
+/// Keep only live entries from a browse response.
+fn live_from_response(resp: &Value, now: i64) -> Vec<Video> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut renderers = Vec::new();
+    collect_key(resp, "videoRenderer", &mut renderers);
+    for r in renderers {
+        if renderer_is_live(r) {
+            if let Some(v) = video_from_renderer(r, now) {
+                if seen.insert(v.id.clone()) {
+                    out.push(v);
+                }
+            }
+        }
+    }
+    let mut lockups = Vec::new();
+    collect_key(resp, "lockupViewModel", &mut lockups);
+    for r in lockups {
+        if lockup_is_live(r) {
+            if let Some(v) = video_from_lockup(r, now) {
+                if seen.insert(v.id.clone()) {
+                    out.push(v);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Live streams from one channel's Streams tab.
+///
+/// That tab mixes current and past streams, so only badge-marked live entries
+/// survive. The tab omits the byline; the caller knows the channel and fills
+/// it in.
+pub async fn channel_live(channel_url: &str, limit: usize) -> Result<Vec<Video>> {
+    let browse_id = resolve_browse_id(channel_url).await?;
+    let resp = post(
+        "browse",
+        json!({ "browseId": browse_id, "params": ChannelTab::Streams.params() }),
+    )
+    .await?;
+    let mut videos = live_from_response(&resp, now_unix());
+    videos.truncate(limit);
     Ok(videos)
 }
 
@@ -1150,5 +1240,80 @@ mod tests {
     #[test]
     fn lockup_playlist_skipped() {
         assert!(video_from_lockup(&lockup("LOCKUP_CONTENT_TYPE_PLAYLIST"), 1_000_000).is_none());
+    }
+
+    // ── live detection ──────────────────────────────────────────────────
+
+    fn live_lockup() -> Value {
+        json!({
+            "contentId": "live1",
+            "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+            "contentImage": {"thumbnailViewModel": {
+                "image": {"sources": [
+                    {"url": "https://i.ytimg.com/vi/live1/hq720.jpg", "width": 1280, "height": 720}
+                ]},
+                "overlays": [{"thumbnailBottomOverlayViewModel": {"badges": [
+                    {"thumbnailBadgeViewModel": {
+                        "text": "LIVE",
+                        "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE"
+                    }}
+                ]}}]
+            }},
+            "metadata": {"lockupMetadataViewModel": {
+                "title": {"content": "Live right now"},
+                "metadata": {"contentMetadataViewModel": {"metadataRows": [
+                    {"metadataParts": [{"text": {"content": "7.3K watching"}}]}
+                ]}}
+            }}
+        })
+    }
+
+    #[test]
+    fn lockup_live_badge_detected() {
+        assert!(lockup_is_live(&live_lockup()));
+        assert!(!lockup_is_live(&lockup("LOCKUP_CONTENT_TYPE_VIDEO")));
+    }
+
+    #[test]
+    fn live_lockup_reads_viewers_not_a_date() {
+        let v = video_from_lockup(&live_lockup(), 1_000_000).unwrap();
+        assert_eq!(v.view_count, Some(7_300));
+        assert_eq!(v.timestamp, None);
+        assert_eq!(v.duration_string, "LIVE");
+    }
+
+    #[test]
+    fn renderer_live_detection() {
+        let badged = json!({
+            "videoId": "v1",
+            "title": {"simpleText": "x"},
+            "badges": [{"metadataBadgeRenderer": {
+                "style": "BADGE_STYLE_TYPE_LIVE_NOW", "label": "LIVE"
+            }}]
+        });
+        assert!(renderer_is_live(&badged));
+        let watching = json!({
+            "videoId": "v2",
+            "title": {"simpleText": "x"},
+            "viewCountText": {"simpleText": "1,234 watching"}
+        });
+        assert!(renderer_is_live(&watching));
+        let vod = json!({
+            "videoId": "v3",
+            "title": {"simpleText": "x"},
+            "viewCountText": {"simpleText": "1,234 views"}
+        });
+        assert!(!renderer_is_live(&vod));
+    }
+
+    #[test]
+    fn live_from_response_keeps_only_live_entries() {
+        let resp = json!({"contents": [
+            {"lockupViewModel": live_lockup()},
+            {"lockupViewModel": lockup("LOCKUP_CONTENT_TYPE_VIDEO")}
+        ]});
+        let live = live_from_response(&resp, 1_000_000);
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].id, "live1");
     }
 }

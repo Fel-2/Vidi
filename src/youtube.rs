@@ -288,12 +288,12 @@ pub fn timestamp_to_yyyymmdd(secs: i64) -> String {
 // Specific fetch operations
 // ---------------------------------------------------------------------------
 
-pub async fn fetch_trending(limit: u32) -> Result<Vec<Video>> {
-    if let Ok(videos) = crate::innertube::trending(limit as usize).await {
-        return Ok(videos);
-    }
-    let json = run_yt_dlp("https://www.youtube.com/gaming", limit).await?;
-    Ok(parse_playlist_json(&json))
+/// Currently-live streams from YouTube's "Live" browse destination.
+///
+/// Innertube only — yt-dlp cannot extract that destination, so unlike the
+/// other fetchers here there is no subprocess fallback.
+pub async fn fetch_live(limit: u32) -> Result<Vec<Video>> {
+    crate::innertube::live_now(limit as usize).await
 }
 
 pub async fn fetch_search(query: &str, sp: &str, limit: u32) -> Result<Vec<Video>> {
@@ -493,6 +493,163 @@ pub async fn fetch_subscription_feed(
 
     sort_videos_newest_first(&mut all);
     Ok(all)
+}
+
+/// Live streams from all subscribed channels, fetched in parallel.
+///
+/// One `browse` per channel against its Streams tab — YouTube exposes no
+/// logged-out bulk "live from my subs" feed (the Subscriptions page returns
+/// nothing without auth, and the channel Videos tab omits live streams), so
+/// this is the only accurate route. Results are ordered by current viewers.
+///
+/// Being ~1 request per subscription, results are cached briefly; a hit
+/// returns without touching the network.
+pub async fn fetch_subscriptions_live(
+    subs: Vec<String>,
+    max_concurrent: usize,
+) -> Result<Vec<Video>> {
+    use tokio::task::JoinSet;
+
+    let fingerprint = subs_live_fingerprint(&subs);
+    if let Some(cached) = load_subs_live_cache(fingerprint) {
+        return Ok(cached);
+    }
+
+    let mut names: std::collections::HashMap<String, String> = load_channel_name_cache();
+    for (url, name) in load_subscriptions_with_names() {
+        if let Some(name) = name {
+            names.insert(url.trim_end_matches('/').to_string(), name);
+        }
+    }
+    let names = std::sync::Arc::new(names);
+
+    let mut set: JoinSet<Vec<Video>> = JoinSet::new();
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrent));
+    for url in subs {
+        let sem = sem.clone();
+        let names = names.clone();
+        set.spawn(async move {
+            let _permit = sem.acquire_owned().await.ok();
+            let key = url.trim_end_matches('/').to_string();
+            let Ok(mut videos) = crate::innertube::channel_live(&key, 10).await else {
+                return vec![];
+            };
+            // The Streams tab omits the byline, but we know which channel we
+            // asked about, so no extra metadata request is needed. Handle URLs
+            // (/@name) also self-describe when no name is cached.
+            let name = names.get(&key).cloned().unwrap_or_else(|| {
+                key.rsplit('/')
+                    .next()
+                    .and_then(|seg| seg.strip_prefix('@'))
+                    .unwrap_or_default()
+                    .to_string()
+            });
+            for v in &mut videos {
+                if v.channel.is_empty() {
+                    v.channel = name.clone();
+                }
+                if v.channel_url.is_empty() {
+                    v.channel_url = key.clone();
+                }
+            }
+            videos
+        });
+    }
+
+    let mut all = Vec::new();
+    while let Some(result) = set.join_next().await {
+        if let Ok(videos) = result {
+            all.extend(videos);
+        }
+    }
+
+    // A channel listed twice in the subscriptions file must not duplicate rows.
+    let mut seen = std::collections::HashSet::new();
+    all.retain(|v| seen.insert(v.id.clone()));
+    all.sort_by_key(|v| std::cmp::Reverse(v.view_count.unwrap_or(0)));
+    save_subs_live_cache(fingerprint, &all);
+    Ok(all)
+}
+
+// ---------------------------------------------------------------------------
+// Subs-live cache
+// ---------------------------------------------------------------------------
+
+/// Live status flips quickly (and the viewer counts drift), so the subs-live
+/// list is only reused for a short window. A hit costs no requests at all,
+/// which is what makes re-opening the list cheap.
+const SUBS_LIVE_CACHE_MAX_AGE_SECS: u64 = 120;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SubsLiveCache {
+    /// Unix timestamp when the cache was written.
+    cached_at: u64,
+    /// Fingerprint of the subscription list, so editing subs invalidates it.
+    subs_fingerprint: u64,
+    videos: Vec<Video>,
+}
+
+/// Order-independent hash of the subscription URLs.
+fn subs_live_fingerprint(subs: &[String]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut urls: Vec<&str> = subs.iter().map(|s| s.trim_end_matches('/')).collect();
+    urls.sort_unstable();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    urls.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Cached live list, if it is fresh and belongs to the same subscription set.
+fn load_subs_live_cache(fingerprint: u64) -> Option<Vec<Video>> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    load_subs_live_cache_at(
+        &crate::config::youtube_subs_live_cache_file(),
+        fingerprint,
+        now,
+    )
+}
+
+fn save_subs_live_cache(fingerprint: u64, videos: &[Video]) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    save_subs_live_cache_at(
+        &crate::config::youtube_subs_live_cache_file(),
+        fingerprint,
+        videos,
+        now,
+    )
+}
+
+fn load_subs_live_cache_at(
+    path: &std::path::Path,
+    fingerprint: u64,
+    now: u64,
+) -> Option<Vec<Video>> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let cache: SubsLiveCache = serde_json::from_str(&content).ok()?;
+    if cache.subs_fingerprint != fingerprint {
+        return None;
+    }
+    (now.saturating_sub(cache.cached_at) < SUBS_LIVE_CACHE_MAX_AGE_SECS).then_some(cache.videos)
+}
+
+fn save_subs_live_cache_at(path: &std::path::Path, fingerprint: u64, videos: &[Video], now: u64) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    let cache = SubsLiveCache {
+        cached_at: now,
+        subs_fingerprint: fingerprint,
+        videos: videos.to_vec(),
+    };
+    if let Ok(json) = serde_json::to_string(&cache) {
+        std::fs::write(path, json).ok();
+    }
 }
 
 pub fn sort_videos_newest_first(videos: &mut [Video]) {
@@ -1451,5 +1608,61 @@ mod tests {
                 Some("Display Name".to_string())
             ))
         );
+    }
+
+    // ── subs-live cache ─────────────────────────────────────────────────
+
+    fn live_video(id: &str) -> Video {
+        Video {
+            id: id.to_string(),
+            title: "Live".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn subs_live_fingerprint_ignores_order_and_trailing_slash() {
+        let a = vec![
+            "https://www.youtube.com/@a".to_string(),
+            "https://www.youtube.com/channel/UCb".to_string(),
+        ];
+        let b = vec![
+            "https://www.youtube.com/channel/UCb/".to_string(),
+            "https://www.youtube.com/@a".to_string(),
+        ];
+        assert_eq!(subs_live_fingerprint(&a), subs_live_fingerprint(&b));
+        let c = vec!["https://www.youtube.com/@a".to_string()];
+        assert_ne!(subs_live_fingerprint(&a), subs_live_fingerprint(&c));
+    }
+
+    #[test]
+    fn subs_live_cache_round_trip_and_expiry() {
+        let path = std::env::temp_dir().join(format!(
+            "vidi-subs-live-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let videos = vec![live_video("aaa"), live_video("bbb")];
+        save_subs_live_cache_at(&path, 42, &videos, 1_000);
+
+        let hit = load_subs_live_cache_at(&path, 42, 1_000 + 60).expect("fresh cache");
+        assert_eq!(hit.len(), 2);
+        assert_eq!(hit[0].id, "aaa");
+        // Expired once the short window has passed.
+        assert!(
+            load_subs_live_cache_at(&path, 42, 1_000 + SUBS_LIVE_CACHE_MAX_AGE_SECS + 1).is_none()
+        );
+        // A different subscription set must not reuse the list.
+        assert!(load_subs_live_cache_at(&path, 43, 1_000 + 60).is_none());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn subs_live_cache_missing_file_is_none() {
+        let path = std::env::temp_dir().join("vidi-subs-live-does-not-exist.json");
+        assert!(load_subs_live_cache_at(&path, 1, 1_000).is_none());
     }
 }

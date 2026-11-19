@@ -316,6 +316,10 @@ pub fn youtube_feed_cache_file() -> PathBuf {
     youtube_cache_dir().join("feed_cache.json")
 }
 
+pub fn youtube_subs_live_cache_file() -> PathBuf {
+    youtube_cache_dir().join("subs_live_cache.json")
+}
+
 pub fn youtube_channel_names_file() -> PathBuf {
     youtube_cache_dir().join("channel_names.json")
 }

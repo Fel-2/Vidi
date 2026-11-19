@@ -67,17 +67,28 @@ pub(super) async fn handle_youtube_menu(app: &mut App, key: event::KeyEvent, sel
 
 async fn youtube_menu_action(app: &mut App, selected: usize) {
     match YOUTUBE_MENU_ITEMS[selected] {
-        "Trending" => {
-            let limit = app.config.youtube.no_of_search_results as u32;
+        "Live Now" => {
+            let subs = youtube::load_subscriptions();
+            if subs.is_empty() {
+                app.set_error(
+                    "No YouTube subscriptions found. Add URLs to ~/.config/vidi/subscriptions",
+                );
+                return;
+            }
             let tx = app.tx.clone();
-            app.loading = Some("Fetching trending videos…".to_string());
+            app.loading = Some("Checking subscriptions for live streams…".to_string());
             tokio::spawn(async move {
-                match youtube::fetch_trending(limit).await {
+                match youtube::fetch_subscriptions_live(subs, 32).await {
+                    Ok(items) if items.is_empty() => {
+                        let _ = tx.send(AppEvent::StatusMessage(
+                            "None of your subscribed channels are live right now.".to_string(),
+                        ));
+                    }
                     Ok(items) => {
                         let _ = tx.send(AppEvent::VideoResults {
                             items,
                             context: ListContext::VideoActions,
-                            title: "Trending".to_string(),
+                            title: "Live Now".to_string(),
                             channel_load_more: None,
                         });
                     }
@@ -201,6 +212,7 @@ async fn youtube_menu_action(app: &mut App, selected: usize) {
             let misc_items = [
                 "Explore Channels",
                 "Explore Playlists",
+                "Live Now (Global)",
                 "Import Subscriptions",
                 "Search History",
                 "Edit Search History",
